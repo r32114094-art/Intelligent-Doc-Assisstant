@@ -1,0 +1,15 @@
+{
+  "session_info": {
+    "session_id": "session_20260401_163721",
+    "user_id": "web_user",
+    "start_time": "2026-04-01T16:37:51.929363",
+    "duration_seconds": 1340.113402
+  },
+  "learning_metrics": {
+    "documents_loaded": 1,
+    "questions_asked": 1,
+    "concepts_learned": 0
+  },
+  "memory_summary": "📊 记忆系统摘要\n总记忆数: 3\n当前会话: session_20260401_164152\n对话轮次: 0\n\n📋 记忆类型分布:\n  • 工作记忆: 1 条 (平均重要性: 0.60)\n  • 情景记忆: 2 条 (平均重要性: 0.80)\n  • 语义记忆: 0 条 (平均重要性: 0.00)\n\n⭐ 重要记忆 (前3条):\n  1. 加载了文档《Happy-LLM-0727.pdf》 (重要性: 0.90)\n  2. 背景调查 (重要性: 0.80)\n  3. 关于'Transformer架构有哪些核心组件？'的学习 (重要性: 0.70)",
+  "rag_status": "📊 **RAG 知识库统计**\n📝 命名空间: default\n📋 集合名称: rag_knowledge_base\n📂 存储根路径: ./knowledge_base\n📦 存储类型: qdrant\n📊 文档分块数: 0\n\n🟢 **系统状态**\n✅ RAG 管道: 正常\n✅ LLM 连接: 正常"
+}

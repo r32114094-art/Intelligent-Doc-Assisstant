@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="智能文档问答助手 - 基于 RAG 的 PDF 学习工具">
+    <title>智能文档问答助手</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- ─────────── 侧边栏 ─────────── -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <span class="logo-icon">📚</span>
+                <span class="logo-text">文档助手</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <button class="nav-item active" data-page="home" id="nav-home">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-label">开始使用</span>
+            </button>
+            <button class="nav-item" data-page="chat" id="nav-chat">
+                <span class="nav-icon">💬</span>
+                <span class="nav-label">智能问答</span>
+            </button>
+            <button class="nav-item" data-page="notes" id="nav-notes">
+                <span class="nav-icon">📝</span>
+                <span class="nav-label">学习笔记</span>
+            </button>
+            <button class="nav-item" data-page="recall" id="nav-recall">
+                <span class="nav-icon">🧠</span>
+                <span class="nav-label">学习回顾</span>
+            </button>
+            <button class="nav-item" data-page="stats" id="nav-stats">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">统计报告</span>
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="status-badge" id="status-badge">
+                <span class="status-dot offline"></span>
+                <span class="status-text">未初始化</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ─────────── 主内容区 ─────────── -->
+    <main class="main-content">
+        <!-- ===== 开始使用 ===== -->
+        <section class="page active" id="page-home">
+            <div class="page-header">
+                <h1>🏠 开始使用</h1>
+                <p class="page-desc">初始化助手并加载 PDF 文档</p>
+            </div>
+
+            <div class="cards-grid">
+                <!-- 初始化卡片 -->
+                <div class="card glass-card">
+                    <div class="card-header">
+                        <span class="card-icon">🚀</span>
+                        <h2>初始化助手</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group">
+                            <label for="user-id-input">用户 ID</label>
+                            <input type="text" id="user-id-input" placeholder="默认为 web_user" value="web_user">
+                        </div>
+                        <button class="btn btn-primary btn-glow" id="init-btn">
+                            <span class="btn-icon">⚡</span> 初始化
+                        </button>
+                        <div class="result-box" id="init-result"></div>
+                    </div>
+                </div>
+
+                <!-- 上传文档卡片 -->
+                <div class="card glass-card">
+                    <div class="card-header">
+                        <span class="card-icon">📄</span>
+                        <h2>加载PDF文档</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="upload-zone" id="upload-zone">
+                            <input type="file" id="pdf-input" accept=".pdf" hidden>
+                            <div class="upload-placeholder" id="upload-placeholder">
+                                <span class="upload-icon">📁</span>
+                                <p>点击或拖拽 PDF 文件到此处</p>
+                                <p class="upload-hint">仅支持 .pdf 格式</p>
+                            </div>
+                            <div class="upload-file-info" id="upload-file-info" style="display:none;">
+                                <span class="file-icon">📄</span>
+                                <span class="file-name" id="file-name"></span>
+                                <button class="btn-remove" id="remove-file-btn">✕</button>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary btn-glow" id="upload-btn" disabled>
+                            <span class="btn-icon">📤</span> 加载文档
+                        </button>
+                        <div class="result-box" id="upload-result"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== 智能问答 ===== -->
+        <section class="page" id="page-chat">
+            <div class="page-header">
+                <h1>💬 智能问答</h1>
+                <p class="page-desc">向文档提问或回顾学习历程</p>
+            </div>
+
+            <div class="chat-container glass-card">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-welcome">
+                        <span class="welcome-icon">🤖</span>
+                        <p>你好！请先加载文档，然后向我提问。</p>
+                        <div class="quick-questions">
+                            <button class="chip" onclick="sendQuickQuestion('什么是大语言模型？')">什么是大语言模型？</button>
+                            <button class="chip" onclick="sendQuickQuestion('Transformer架构有哪些核心组件？')">Transformer架构</button>
+                            <button class="chip" onclick="sendQuickQuestion('我之前学过什么内容？')">回顾学习内容</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-area">
+                    <div class="chat-input-wrapper">
+                        <textarea id="chat-input" placeholder="输入你的问题..." rows="1"></textarea>
+                        <button class="btn btn-send" id="send-btn" title="发送">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== 学习笔记 ===== -->
+        <section class="page" id="page-notes">
+            <div class="page-header">
+                <h1>📝 学习笔记</h1>
+                <p class="page-desc">记录学习心得和重要概念</p>
+            </div>
+
+            <div class="card glass-card">
+                <div class="card-body">
+                    <div class="input-group">
+                        <label for="note-content">笔记内容</label>
+                        <textarea id="note-content" placeholder="输入你的学习笔记..." rows="4"></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label for="note-concept">相关概念（可选）</label>
+                        <input type="text" id="note-concept" placeholder="例如：transformer, attention">
+                    </div>
+                    <button class="btn btn-primary btn-glow" id="save-note-btn">
+                        <span class="btn-icon">💾</span> 保存笔记
+                    </button>
+                    <div class="result-box" id="note-result"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== 学习回顾 ===== -->
+        <section class="page" id="page-recall">
+            <div class="page-header">
+                <h1>🧠 学习回顾</h1>
+                <p class="page-desc">检索并回顾你的学习历程</p>
+            </div>
+
+            <div class="card glass-card">
+                <div class="card-body">
+                    <div class="input-group">
+                        <label for="recall-query">查询关键词</label>
+                        <input type="text" id="recall-query" placeholder="输入关键词检索学习记忆...">
+                    </div>
+                    <button class="btn btn-primary btn-glow" id="recall-btn">
+                        <span class="btn-icon">🔍</span> 检索回顾
+                    </button>
+                    <div class="recall-result" id="recall-result"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== 统计报告 ===== -->
+        <section class="page" id="page-stats">
+            <div class="page-header">
+                <h1>📊 学习统计</h1>
+                <p class="page-desc">查看学习进度和统计信息</p>
+            </div>
+
+            <div class="cards-grid">
+                <div class="card glass-card stat-card" id="stat-duration">
+                    <span class="stat-icon">⏱️</span>
+                    <span class="stat-value" id="stat-val-duration">--</span>
+                    <span class="stat-label">会话时长</span>
+                </div>
+                <div class="card glass-card stat-card" id="stat-docs">
+                    <span class="stat-icon">📄</span>
+                    <span class="stat-value" id="stat-val-docs">0</span>
+                    <span class="stat-label">加载文档</span>
+                </div>
+                <div class="card glass-card stat-card" id="stat-questions">
+                    <span class="stat-icon">❓</span>
+                    <span class="stat-value" id="stat-val-questions">0</span>
+                    <span class="stat-label">提问次数</span>
+                </div>
+                <div class="card glass-card stat-card" id="stat-notes">
+                    <span class="stat-icon">📝</span>
+                    <span class="stat-value" id="stat-val-notes">0</span>
+                    <span class="stat-label">学习笔记</span>
+                </div>
+            </div>
+
+            <div class="action-bar">
+                <button class="btn btn-primary btn-glow" id="refresh-stats-btn">
+                    <span class="btn-icon">🔄</span> 刷新统计
+                </button>
+                <button class="btn btn-secondary" id="gen-report-btn">
+                    <span class="btn-icon">📋</span> 生成报告
+                </button>
+            </div>
+
+            <div class="card glass-card" id="report-card" style="display:none;">
+                <div class="card-header">
+                    <span class="card-icon">📋</span>
+                    <h2>学习报告</h2>
+                </div>
+                <div class="card-body">
+                    <pre id="report-content" class="report-pre"></pre>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 加载遮罩 -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="spinner"></div>
+        <p class="loading-text" id="loading-text">处理中...</p>
+    </div>
+
+    <!-- Toast 通知 -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
