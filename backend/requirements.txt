@@ -1,5 +1,21 @@
+# 核心框架
 fastapi
 uvicorn[standard]
 python-multipart
 python-dotenv
-hello-agents
+
+# 文档解析
+markitdown
+
+# 向量数据库
+qdrant-client
+
+# 嵌入与重排序
+sentence-transformers
+
+# LLM 调用
+openai
+
+# 工具库
+requests
+numpy

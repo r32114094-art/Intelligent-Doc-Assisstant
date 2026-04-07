@@ -1,0 +1,197 @@
+{
+  "success": true,
+  "timestamp": "2026-04-06T23:42:48.776056",
+  "elapsed_seconds": 329.1,
+  "num_test_cases": 3,
+  "num_configs": 2,
+  "summary_table": [
+    {
+      "config": "Baseline",
+      "overall": 4.22,
+      "context_relevance": 2.67,
+      "faithfulness": 5.0,
+      "answer_relevance": 5.0,
+      "rejection_accuracy": 0,
+      "avg_latency_s": 19.7,
+      "num_normal": 3,
+      "num_rejection": 0,
+      "by_difficulty": {
+        "easy": {
+          "count": 3,
+          "avg_cr": 2.67,
+          "avg_ff": 5.0,
+          "avg_ar": 5.0
+        }
+      }
+    },
+    {
+      "config": "Full (MQE+HyDE+RR)",
+      "overall": 3.33,
+      "context_relevance": 2.67,
+      "faithfulness": 2.33,
+      "answer_relevance": 5.0,
+      "rejection_accuracy": 0,
+      "avg_latency_s": 53.3,
+      "num_normal": 3,
+      "num_rejection": 0,
+      "by_difficulty": {
+        "easy": {
+          "count": 3,
+          "avg_cr": 2.67,
+          "avg_ff": 2.33,
+          "avg_ar": 5.0
+        }
+      }
+    }
+  ],
+  "details": {
+    "Baseline": [
+      {
+        "id": "Q1",
+        "question": "什么是NLP？",
+        "difficulty": "easy",
+        "expect_rejection": false,
+        "answer": "根据提供的文档片段，NLP（自然语言处理）的定义和核心目标如下：\n\n**NLP的定义**\nNLP是**一种让计算机理解、解释和生成人类语言的技术**。它是人工智能领域中一个极为活跃和重要的研究方向，其核心任务是通过计算机程序来模拟人类对语言的认知和使用过程（来源：片段3，第1.1节）。\n\n**NLP的核心目标**\nNLP结合了计算机科学、人工智能、语言学和心理学等多个学科的知识和技术，旨在**打破",
+        "latency": 19.1,
+        "num_contexts": 5,
+        "context_relevance": {
+          "metric": "context_relevance",
+          "score": 2,
+          "reason": "上下文主要讨论了计算机视觉、神经网络架构（如FNN、CNN、RNN）、词性标注、大语言模型（LLM）项目介绍、文本摘要、机器翻译以及RNN/LSTM的局限性。虽然其中提到了NLP（自然语言处理）作为机器翻译和词性标注的领域，并且有一个LLM项目声称从NLP的基本研究方法出发，但整体上下文并没有直接、全面地定义或解释“什么是NLP”。它只是零散地提及了NLP中的一些具体任务（如词性标注、机器翻译）和技术，缺乏对NLP作为一个整体领域的核心概念、定义或范围的系统阐述。因此，上下文与问题的相关性较低，大部分内容与问题无关。"
+        },
+        "faithfulness": {
+          "metric": "faithfulness",
+          "score": 5,
+          "reason": "回答完全忠实于上下文。回答中关于NLP的定义、核心目标和主要任务（如中文分词、词性标注、文本摘要、机器翻译等）均直接引用或准确概括了上下文（特别是片段3）的内容，没有任何编造或幻觉。回答的结构清晰，并注明了信息来源，与提供的上下文完全一致。"
+        },
+        "answer_relevance": {
+          "metric": "answer_relevance",
+          "score": 5,
+          "reason": "回答完全正确且完整地解决了问题。它准确复述了标准答案中关于NLP的定义、核心目标、跨学科性质以及主要任务，并明确指出了这些信息在文档中的来源。回答结构清晰，涵盖了标准答案的所有关键点，包括技术目标、学科交叉和具体应用示例，因此得分为5。"
+        }
+      },
+      {
+        "id": "Q2",
+        "question": "什么是 Seq2Seq 模型？ Encoder 和 Decoder 内部传统神经网络的经典结构是什么？",
+        "difficulty": "easy",
+        "expect_rejection": false,
+        "answer": "根据提供的文档片段，以下是关于Seq2Seq模型以及Encoder和Decoder内部传统神经网络经典结构的回答：\n\n### 1. 什么是Seq2Seq模型？\n- **定义**：Seq2Seq（序列到序列）是一种经典的NLP任务，指模型输入一个自然语言序列，输出另一个可能不等长的自然语言序列。\n- **应用**：几乎所有NLP任务都可以视为Seq2Seq任务，例如：\n  - 机器翻译（如输入“今天",
+        "latency": 23.4,
+        "num_contexts": 5,
+        "context_relevance": {
+          "metric": "context_relevance",
+          "score": 2,
+          "reason": "上下文主要讨论了Transformer架构、多头注意力机制、RNN/LSTM的局限性以及T5模型的结构，但并未直接回答“什么是Seq2Seq模型”或“Encoder和Decoder内部传统神经网络的经典结构是什么”。虽然提到了编码器-解码器结构，但焦点是Transformer及其变体，而非传统的基于RNN/LSTM的Seq2Seq模型。因此，上下文与问题的相关性有限，大部分内容无关。"
+        },
+        "faithfulness": {
+          "metric": "faithfulness",
+          "score": 5,
+          "reason": "回答完全忠实于上下文。它准确总结了Seq2Seq模型的定义、应用和工作原理，这些信息在上下文中都有明确提及。对于Encoder和Decoder的内部经典结构，回答正确识别了前馈神经网络（FFN）、层归一化（Layer Norm）和残差连接，并引用了上下文中的相关描述和代码示例。回答没有编造任何信息，所有要点都有上下文依据。"
+        },
+        "answer_relevance": {
+          "metric": "answer_relevance",
+          "score": 5,
+          "reason": "系统回答完全正确且完整地解决了问题。它准确解释了Seq2Seq模型的定义、应用和工作原理，并详细列出了Encoder和Decoder内部的经典结构：前馈神经网络（FNN）、层归一化（Layer Norm）和残差连接。回答不仅涵盖了标准答案的所有要点，还补充了额外的细节（如FFN的具体组成、Layer Norm的作用、残差连接的目的以及Encoder/Decoder层的具体组件），使解释更加丰富和清晰，与标准答案完全一致。"
+        }
+      },
+      {
+        "id": "Q3",
+        "question": "WordPiece是什么？",
+        "difficulty": "easy",
+        "expect_rejection": false,
+        "answer": "根据提供的文档片段，WordPiece是一种基于子词的分词方法，最初用于谷歌的BERT模型。以下是其关键信息：\n\n1. **基本定义**：WordPiece是一种Subword Tokenizer，介于词和字符之间，能够更好地平衡分词的细粒度和处理未登录词的能力（来源：5.2.3 Subword Tokenizer部分）。\n\n2. **工作原理**：\n   - 与BPE类似，WordPiece通过",
+        "latency": 16.6,
+        "num_contexts": 5,
+        "context_relevance": {
+          "metric": "context_relevance",
+          "score": 4,
+          "reason": "上下文中的第二段直接定义了WordPiece，说明它是一种基于子词的分词方法，最初用于谷歌的BERT模型，并简要描述了其工作原理（通过最大化子词序列的似然函数生成词典，合并时注重语言模型优化）。这基本覆盖了问题'WordPiece是什么？'的核心信息，但未提供更详细的示例或与其他方法（如BPE）的完整对比，因此评分4分。"
+        },
+        "faithfulness": {
+          "metric": "faithfulness",
+          "score": 5,
+          "reason": "回答完全忠实于上下文。它准确描述了WordPiece是一种基于子词的分词方法，最初用于谷歌的BERT模型，并解释了其工作原理（如与BPE类似但更注重语言模型优化）、示例（如'lower' -> ['low', 'er']）以及应用场景（如用于BERT模型）。所有信息都直接来源于提供的上下文，没有编造或幻觉。"
+        },
+        "answer_relevance": {
+          "metric": "answer_relevance",
+          "score": 5,
+          "reason": "系统回答完全正确且完整地解释了WordPiece。它涵盖了标准答案中的所有关键点：WordPiece是基于子词的分词方法，最初用于BERT；与BPE类似但更注重语言模型优化，通过最大化子词序列的似然函数和整体句子概率来生成词典。此外，回答还补充了额外细节，如工作原理示例（如'playing'和'unhappiness'的拆分）、应用场景（如中文处理）以及其作为Subword Tokenizer的定位，这些信息都准确且增强了回答的完整性。因此，回答精准地解决了问题。"
+        }
+      }
+    ],
+    "Full (MQE+HyDE+RR)": [
+      {
+        "id": "Q1",
+        "question": "什么是NLP？",
+        "difficulty": "easy",
+        "expect_rejection": false,
+        "answer": "根据提供的文档片段，NLP（自然语言处理）的定义和核心目标如下：\n\n**什么是NLP？**\nNLP（Natural Language Processing，自然语言处理）是人工智能领域的一个重要分支，其目标是让计算机能够理解、解释和生成人类语言，实现人机之间的自然交流。\n\n**核心任务：**\nNLP技术使计算机能够执行各种复杂的语言处理任务，例如：\n*   中文分词\n*   子词切分\n*   词性",
+        "latency": 46.2,
+        "num_contexts": 5,
+        "context_relevance": {
+          "metric": "context_relevance",
+          "score": 2,
+          "reason": "上下文主要讨论了计算机视觉、神经网络架构（如FNN、CNN、RNN）、大语言模型（LLM）项目介绍、火星探测、文本摘要、机器翻译以及词性标注等主题。虽然其中零星提到了NLP（自然语言处理）作为机器翻译和词性标注的领域，但整体内容并未系统性地解释“什么是NLP”。NLP的定义、核心概念、主要任务或基本方法在上下文中没有充分覆盖，大部分内容与问题直接相关性较弱。"
+        },
+        "faithfulness": {
+          "metric": "faithfulness",
+          "score": 1,
+          "reason": "回答声称其信息整合自文档片段中关于“第⼀章 NLP 基础概念”和“1.1 什么是 NLP”部分的详细描述，但提供的上下文片段中并未包含这些章节或对NLP的明确定义。上下文主要涉及神经网络架构（如FNN、CNN、RNN）、项目介绍、火星探测、文本摘要、机器翻译、ELMo模型和词性标注示例。回答中关于NLP的定义、核心任务和关键说明等内容在给定上下文中没有依据，属于编造/幻觉。"
+        },
+        "answer_relevance": {
+          "metric": "answer_relevance",
+          "score": 5,
+          "reason": "系统回答准确、完整地复现了标准答案的核心内容。它明确定义了NLP（自然语言处理）是人工智能的分支，目标是让计算机理解、解释和生成人类语言以实现自然交流。回答完整列举了标准答案中提到的所有核心任务（如中文分词、文本分类、机器翻译等），并涵盖了跨学科性质、处理层次（从表层结构到深层含义）以及技术发展（如深度学习）等关键方面。回答结构清晰，虽未逐字复制标准答案，但所有要点均得到正确表述，无错误或遗漏信息。"
+        }
+      },
+      {
+        "id": "Q2",
+        "question": "什么是 Seq2Seq 模型？ Encoder 和 Decoder 内部传统神经网络的经典结构是什么？",
+        "difficulty": "easy",
+        "expect_rejection": false,
+        "answer": "根据提供的文档内容，以下是关于Seq2Seq模型以及Encoder和Decoder内部传统神经网络经典结构的回答：\n\n### 1. 什么是Seq2Seq模型？\nSeq2Seq（Sequence-to-Sequence）模型是一种用于处理序列到序列转换任务的架构。在Transformer中，它通过**编码器（Encoder）**对输入源序列进行编码，再通过**解码器（Decoder）**对编码结果进",
+        "latency": 52.6,
+        "num_contexts": 5,
+        "context_relevance": {
+          "metric": "context_relevance",
+          "score": 2,
+          "reason": "上下文主要讨论了Transformer、T5、BERT和ALBERT等模型的架构和组件，虽然提到了Encoder和Decoder，但并未直接定义Seq2Seq模型。对于问题的第二部分——Encoder和Decoder内部传统神经网络的经典结构（如RNN、LSTM或GRU），上下文完全没有涉及。提供的代码片段仅展示了Transformer风格的Encoder Layer（包含注意力机制和前馈网络），这与问题所问的“传统神经网络经典结构”不符。因此，上下文与问题的相关性较低，大部分内容无关。"
+        },
+        "faithfulness": {
+          "metric": "faithfulness",
+          "score": 2,
+          "reason": "回答声称Encoder和Decoder的经典结构包括前馈神经网络、层归一化和残差连接，并引用了文档中的具体章节。然而，上下文并未提供关于这些结构是“经典”或“传统”的明确描述，也未在指定章节（如2.2.2节、2.2.3节）中讨论这些内容。上下文主要涉及Transformer的宏观架构和组件，但未详细定义或列举这些内部结构为经典神经网络形式。因此，回答部分基于上下文（如前馈神经网络在代码片段中提及），但整体表述存在较多无依据的推断和编造，特别是关于经典结构的分类和文档引用。"
+        },
+        "answer_relevance": {
+          "metric": "answer_relevance",
+          "score": 5,
+          "reason": "系统回答完全正确且完整地解决了问题。首先，它准确定义了Seq2Seq模型，包括其作为序列到序列转换任务的架构，并提及了在Transformer中的具体应用（编码器和解码器）以及适用任务（如机器翻译、文本摘要），这与标准答案的核心概念一致。其次，它明确列出了Encoder和Decoder内部传统神经网络的三种经典结构：前馈神经网络（FFN）、层归一化（Layer Norm）和残差连接（Residual Connection），并提供了简要说明和来源参考，完全覆盖了标准答案的内容。回答结构清晰，信息准确无误，因此得分为5。"
+        }
+      },
+      {
+        "id": "Q3",
+        "question": "WordPiece是什么？",
+        "difficulty": "easy",
+        "expect_rejection": false,
+        "answer": "根据提供的文档片段，WordPiece是一种基于子词的分词方法，最初用于谷歌的BERT模型。以下是其核心特点：\n\n1. **基本定义**：WordPiece是一种基于统计的子词切分算法，核心在于将单词拆解为子词（例如，\"playing\" -> [\"play\", \"##ing\"]）【2†L1-L3】。\n\n2. **工作原理**：\n   - 与BPE类似，WordPiece通过最大化子词序列的似然函数",
+        "latency": 61.2,
+        "num_contexts": 5,
+        "context_relevance": {
+          "metric": "context_relevance",
+          "score": 4,
+          "reason": "上下文直接描述了WordPiece的定义、目的（用于谷歌的BERT模型）、核心机制（基于子词、最大化似然函数生成词典）以及与BPE的对比（更注重语言模型优化）。这基本覆盖了问题“WordPiece是什么？”的核心信息。然而，上下文在关键细节处被截断（例如“最⼤”之后的内容缺失），且包含了一些不直接相关的信息（如BERT模型结构、位置编码示例等），因此评分略低于完全覆盖。"
+        },
+        "faithfulness": {
+          "metric": "faithfulness",
+          "score": 4,
+          "reason": "回答基本忠实于上下文，准确描述了WordPiece的定义、工作原理、示例和应用场景。大部分信息（如定义、与BPE的对比、示例、在BERT中的应用）都能在上下文中找到依据。然而，回答中提到“对于中文等非空格分隔的语言，通常将单个汉字作为原子分词单位（token）处理”，虽然这一说法本身是正确的，但在提供的上下文片段中并未明确提及这一点。上下文只提到了中文分词的一般复杂性，但没有具体说明WordPiece对中文的处理方式。因此，存在一处轻微的推断，但整体上回答是可靠的。"
+        },
+        "answer_relevance": {
+          "metric": "answer_relevance",
+          "score": 5,
+          "reason": "系统回答完全覆盖了标准答案的核心内容，包括WordPiece的定义、与BPE的相似性、优化语言模型概率的特点，以及其在BERT中的应用。此外，回答还提供了额外的细节，如具体示例（'unhappiness'的分割）、特殊标记（'##'）的作用，以及中文处理方式，这些内容进一步丰富了回答的完整性，且与标准答案一致。因此，回答精准且完整。"
+        }
+      }
+    ]
+  }
+}

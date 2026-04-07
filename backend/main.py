@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-智能文档问答助手 - FastAPI 后端
-提供 RESTful API 供前端调用
+智能文档问答助手 — FastAPI 后端
+
+完全自主实现的 RAG 管道，不依赖 hello-agents 库。
+核心模块：parser → chunker → embedder → vector_store → retriever → reranker → llm_client
 """
 
 import os
@@ -10,66 +10,58 @@ import shutil
 import tempfile
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from assistant import PDFLearningAssistant
+from assistant import DocumentAssistant
 
 # ────────────────────────────────────────────
-# Pydantic 请求/响应模型
+# 请求/响应模型
 # ────────────────────────────────────────────
-
-class InitRequest(BaseModel):
-    user_id: str = "web_user"
 
 class ChatRequest(BaseModel):
     message: str
-    use_advanced_search: bool = True
 
-class NoteRequest(BaseModel):
-    content: str
-    concept: Optional[str] = None
 
-class RecallRequest(BaseModel):
-    query: str
-    limit: int = 5
+class DeleteDocRequest(BaseModel):
+    source: str
+
 
 class MessageResponse(BaseModel):
     success: bool
     message: str
     data: Optional[dict] = None
 
+
 # ────────────────────────────────────────────
-# FastAPI 应用
+# 应用初始化
 # ────────────────────────────────────────────
 
-app = FastAPI(
-    title="智能文档问答助手 API",
-    description="基于 HelloAgents 的智能文档问答系统",
-    version="1.0.0",
-)
+app = FastAPI(title="智能文档问答助手", version="2.0")
 
-# CORS - 允许前端跨域访问
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 # 全局助手实例
-assistant: Optional[PDFLearningAssistant] = None
+_assistant: Optional[DocumentAssistant] = None
 
 
-def get_assistant() -> PDFLearningAssistant:
-    """获取助手实例，未初始化则抛出异常"""
-    if assistant is None:
-        raise HTTPException(status_code=400, detail="助手尚未初始化，请先调用 /api/init")
-    return assistant
+def get_assistant() -> DocumentAssistant:
+    global _assistant
+    if _assistant is None or not _assistant.initialized:
+        raise HTTPException(status_code=400, detail="请先初始化助手")
+    return _assistant
+
+
+# ────────────────────────────────────────────
+# 页面路由
+# ────────────────────────────────────────────
+
+@app.get("/")
+async def index():
+    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
 
 # ────────────────────────────────────────────
@@ -77,27 +69,28 @@ def get_assistant() -> PDFLearningAssistant:
 # ────────────────────────────────────────────
 
 @app.post("/api/init", response_model=MessageResponse)
-async def init_assistant(req: InitRequest):
-    """初始化助手"""
-    global assistant
-    user_id = req.user_id or "web_user"
-    assistant = PDFLearningAssistant(user_id=user_id)
-    return MessageResponse(
-        success=True,
-        message=f"助手已初始化 (用户: {user_id})",
-        data={"user_id": user_id, "session_id": assistant.session_id},
-    )
+async def init_assistant():
+    """初始化 RAG 管道"""
+    global _assistant
+    try:
+        _assistant = DocumentAssistant()
+        _assistant.initialize()
+        return MessageResponse(success=True, message="RAG 管道初始化成功")
+    except Exception as e:
+        return MessageResponse(success=False, message=f"初始化失败: {str(e)}")
 
 
 @app.post("/api/upload", response_model=MessageResponse)
-async def upload_pdf(file: UploadFile = File(...)):
-    """上传 PDF 文件并加载到知识库"""
+async def upload_document(file: UploadFile = File(...)):
+    """上传文档到知识库"""
     ast = get_assistant()
 
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
+    allowed_ext = {".pdf", ".md", ".txt", ".docx", ".csv", ".json"}
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in allowed_ext:
+        raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}")
 
-    # 保存临时文件
+    # 保存到临时目录
     tmp_dir = tempfile.mkdtemp()
     tmp_path = os.path.join(tmp_dir, file.filename)
     try:
@@ -109,10 +102,9 @@ async def upload_pdf(file: UploadFile = File(...)):
         return MessageResponse(
             success=result["success"],
             message=result["message"],
-            data={"document": result.get("document")},
+            data={"document": result.get("document"), "chunks": result.get("chunks")},
         )
     finally:
-        # 清理临时文件
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
@@ -120,91 +112,96 @@ async def upload_pdf(file: UploadFile = File(...)):
 async def chat(req: ChatRequest):
     """智能问答"""
     ast = get_assistant()
-
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="消息不能为空")
 
-    # 判断是回顾还是问答
-    recall_keywords = ["之前", "学过", "回顾", "历史", "记得"]
-    if any(kw in req.message for kw in recall_keywords):
-        response = ast.recall(req.message)
-        resp_type = "recall"
-    else:
-        response = ast.ask(req.message, use_advanced_search=req.use_advanced_search)
-        resp_type = "answer"
-
+    result = ast.ask(req.message)
     return MessageResponse(
         success=True,
-        message=response,
-        data={"type": resp_type},
+        message=result["answer"],
+        data={
+            "type": "answer",
+            "steps": result.get("steps", []),
+            "total_time": result.get("total_time"),
+        },
     )
 
 
-@app.post("/api/note", response_model=MessageResponse)
-async def add_note(req: NoteRequest):
-    """添加学习笔记"""
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """流式智能问答 — SSE 实时推送管道步骤"""
+    from fastapi.responses import StreamingResponse
+
     ast = get_assistant()
+    if not req.message.strip():
+        raise HTTPException(status_code=400, detail="消息不能为空")
 
-    if not req.content.strip():
-        raise HTTPException(status_code=400, detail="笔记内容不能为空")
+    def event_generator():
+        for event_data in ast.ask_streaming(req.message):
+            yield f"data: {event_data}\n\n"
 
-    ast.add_note(req.content, req.concept)
-    return MessageResponse(
-        success=True,
-        message=f"笔记已保存: {req.content[:50]}...",
-    )
-
-
-@app.post("/api/recall", response_model=MessageResponse)
-async def recall_memory(req: RecallRequest):
-    """回顾学习历程"""
-    ast = get_assistant()
-    result = ast.recall(req.query, req.limit)
-    return MessageResponse(success=True, message=result)
-
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/api/stats", response_model=MessageResponse)
 async def get_stats():
-    """获取学习统计"""
+    """获取统计信息"""
     ast = get_assistant()
     stats = ast.get_stats()
     return MessageResponse(success=True, message="获取成功", data=stats)
 
 
-@app.get("/api/report", response_model=MessageResponse)
-async def get_report():
-    """生成学习报告"""
+# ────────────────────────────────────────────
+# 文档管理 API
+# ────────────────────────────────────────────
+
+@app.get("/api/documents", response_model=MessageResponse)
+async def list_documents():
+    """列出知识库中所有已索引的文档"""
     ast = get_assistant()
-    report = ast.generate_report(save_to_file=True)
-    return MessageResponse(success=True, message="报告已生成", data=report)
+    try:
+        documents = ast.store.list_documents()
+        return MessageResponse(
+            success=True,
+            message=f"共 {len(documents)} 个文档",
+            data={"documents": documents},
+        )
+    except Exception as e:
+        return MessageResponse(success=False, message=f"查询失败: {str(e)}")
+
+
+@app.post("/api/documents/delete", response_model=MessageResponse)
+async def delete_document(req: DeleteDocRequest):
+    """从知识库中删除指定文档"""
+    ast = get_assistant()
+    source = req.source.strip()
+    if not source:
+        raise HTTPException(status_code=400, detail="文档标识不能为空")
+
+    try:
+        count = ast.store.delete_by_source(source)
+        if count == 0:
+            return MessageResponse(success=False, message=f"未找到文档: {source}")
+        return MessageResponse(
+            success=True,
+            message=f"已删除「{source}」的 {count} 个分块",
+        )
+    except Exception as e:
+        return MessageResponse(success=False, message=f"删除失败: {str(e)}")
 
 
 # ────────────────────────────────────────────
-# 静态文件 & 前端页面
-# ────────────────────────────────────────────
-
-frontend_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
-app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
-
-
-@app.get("/")
-async def serve_frontend():
-    """返回前端首页"""
-    return FileResponse(os.path.join(frontend_dir, "index.html"))
-
-
-# ────────────────────────────────────────────
-# 入口
+# 启动
 # ────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn
 
     print("\n" + "=" * 60)
-    print("  智能文档问答助手 — FastAPI 后端")
+    print("  智能文档问答助手 — FastAPI 后端 v2.0")
+    print("  核心：自主实现 RAG 管道（无 hello-agents 依赖）")
     print("=" * 60)
-    print("  前端地址: http://localhost:8000")
-    print("  API 文档: http://localhost:8000/docs")
+    print(f"  前端地址: http://localhost:8000")
+    print(f"  API 文档: http://localhost:8000/docs")
     print("=" * 60 + "\n")
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

@@ -1,10 +1,18 @@
 /* ============================================================
-   智能文档问答助手 — 前端逻辑
+   智能文档问答助手 — 前端逻辑 v2.0
+   完全自主实现 RAG 管道版
    ============================================================ */
 
 const API_BASE = '';  // 同源，无需前缀
 
 // ── 工具函数 ──────────────────────────────
+
+/** HTML 转义 */
+function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
 
 /** 发起 API 请求 */
 async function api(path, options = {}) {
@@ -55,6 +63,7 @@ function toast(msg, type = 'info') {
 /** 设置结果框 */
 function setResult(id, text, type = 'success') {
     const el = document.getElementById(id);
+    if (!el) return;
     el.textContent = text;
     el.className = `result-box show ${type}`;
 }
@@ -90,16 +99,13 @@ function updateStatus(online) {
 // ── 初始化助手 ────────────────────────────
 
 document.getElementById('init-btn').addEventListener('click', async () => {
-    const userId = document.getElementById('user-id-input').value.trim() || 'web_user';
-    showLoading('初始化助手...');
+    showLoading('初始化 RAG 管道...');
     try {
-        const res = await api('/api/init', {
-            method: 'POST',
-            body: JSON.stringify({ user_id: userId }),
-        });
+        const res = await api('/api/init', { method: 'POST', body: '{}' });
         setResult('init-result', `✅ ${res.message}`, 'success');
         updateStatus(true);
-        toast('助手初始化成功', 'success');
+        toast('RAG 管道初始化成功', 'success');
+        loadDocuments();
     } catch (e) {
         setResult('init-result', `❌ ${e.message}`, 'error');
         toast(e.message, 'error');
@@ -138,10 +144,8 @@ uploadZone.addEventListener('drop', (e) => {
     e.preventDefault();
     uploadZone.classList.remove('drag-over');
     const file = e.dataTransfer.files[0];
-    if (file && file.name.toLowerCase().endsWith('.pdf')) {
+    if (file) {
         selectFile(file);
-    } else {
-        toast('仅支持 PDF 文件', 'error');
     }
 });
 
@@ -178,8 +182,10 @@ uploadBtn.addEventListener('click', async () => {
     try {
         const res = await apiUpload('/api/upload', selectedFile);
         if (res.success) {
-            setResult('upload-result', `✅ ${res.message}\n📄 文档: ${res.data?.document || ''}`, 'success');
+            setResult('upload-result', `✅ ${res.message}`, 'success');
             toast('文档加载成功', 'success');
+            clearFile();
+            loadDocuments();
         } else {
             setResult('upload-result', `❌ ${res.message}`, 'error');
             toast(res.message, 'error');
@@ -200,7 +206,6 @@ const sendBtn      = document.getElementById('send-btn');
 
 /** 添加消息到聊天窗 */
 function appendMessage(role, text, label) {
-    // 首次发消息时清除欢迎页
     const welcome = chatMessages.querySelector('.chat-welcome');
     if (welcome) welcome.remove();
 
@@ -215,12 +220,6 @@ function appendMessage(role, text, label) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 async function sendMessage() {
     const msg = chatInput.value.trim();
     if (!msg) return;
@@ -231,15 +230,102 @@ async function sendMessage() {
     chatInput.style.height = 'auto';
     sendBtn.disabled = true;
 
+    // 创建思考气泡
+    const welcome = chatMessages.querySelector('.chat-welcome');
+    if (welcome) welcome.remove();
+
+    const thinkingDiv = document.createElement('div');
+    thinkingDiv.className = 'message assistant';
+    const stepsContainer = document.createElement('div');
+    stepsContainer.className = 'pipeline-steps';
+    stepsContainer.innerHTML = '<div class="step-item active"><span class="step-dot"></span>正在分析问题...</div>';
+    thinkingDiv.innerHTML = '<span class="msg-label">🧠 思考中</span>';
+    thinkingDiv.appendChild(stepsContainer);
+    chatMessages.appendChild(thinkingDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    // 记录已完成的步骤名 → 用于更新而非追加
+    const stepElements = {};
+    let answerText = '';
+    let totalTime = '';
+
     try {
-        const res = await api('/api/chat', {
+        const response = await fetch('/api/chat/stream', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: msg }),
         });
-        const label = res.data?.type === 'recall' ? '🧠 学习回顾' : '💡 回答';
-        appendMessage('assistant', res.message, label);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // 保留不完整的行
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const event = JSON.parse(line.slice(6));
+
+                    if (event.type === 'step') {
+                        const key = event.name;
+                        if (event.time) {
+                            // 步骤完成 → 更新为完成态
+                            if (stepElements[key]) {
+                                stepElements[key].className = 'step-item done';
+                                stepElements[key].innerHTML = `<span class="step-icon">${event.icon}</span><span class="step-name">${escapeHtml(event.name)}</span><span class="step-detail">${escapeHtml(event.detail)}</span><span class="step-time">${event.time}</span>`;
+                            }
+                        } else {
+                            // 步骤开始 → 新增进行中行
+                            const el = document.createElement('div');
+                            el.className = 'step-item active';
+                            el.innerHTML = `<span class="step-icon"><span class="step-dot"></span></span><span class="step-name">${escapeHtml(event.name)}</span><span class="step-detail">${escapeHtml(event.detail)}</span>`;
+                            stepsContainer.appendChild(el);
+                            stepElements[key] = el;
+                        }
+                    } else if (event.type === 'answer') {
+                        answerText = event.content;
+                    } else if (event.type === 'done') {
+                        totalTime = event.total_time;
+                    }
+
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                } catch (_) { /* skip malformed */ }
+            }
+        }
+
+        // 最终渲染：步骤 + 总耗时 + 回答
+        if (totalTime) {
+            const totalEl = document.createElement('div');
+            totalEl.className = 'step-total';
+            totalEl.textContent = `⏱️ 总耗时 ${totalTime}`;
+            stepsContainer.appendChild(totalEl);
+        }
+
+        // 移除初始的「正在分析问题」
+        const initStep = stepsContainer.querySelector('.step-item.active');
+        if (initStep && !stepElements[initStep.querySelector('.step-name')?.textContent]) {
+            initStep.remove();
+        }
+
+        thinkingDiv.querySelector('.msg-label').textContent = '💡 回答';
+        const divider = document.createElement('div');
+        divider.className = 'step-divider';
+        thinkingDiv.appendChild(divider);
+        const answerDiv = document.createElement('div');
+        answerDiv.className = 'answer-content';
+        answerDiv.textContent = answerText;
+        thinkingDiv.appendChild(answerDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
     } catch (e) {
-        appendMessage('assistant', `⚠️ 错误: ${e.message}`, '❌ 错误');
+        thinkingDiv.innerHTML = `<span class="msg-label">❌ 错误</span><div class="answer-content">⚠️ ${escapeHtml(e.message)}</div>`;
     } finally {
         sendBtn.disabled = false;
         chatInput.focus();
@@ -254,69 +340,17 @@ chatInput.addEventListener('keydown', (e) => {
     }
 });
 
-// 自动增高
 chatInput.addEventListener('input', () => {
     chatInput.style.height = 'auto';
     chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
 });
 
-// 快捷问题
 function sendQuickQuestion(q) {
     chatInput.value = q;
     sendMessage();
 }
 
-// ── 学习笔记 ─────────────────────────────
-
-document.getElementById('save-note-btn').addEventListener('click', async () => {
-    const content = document.getElementById('note-content').value.trim();
-    const concept = document.getElementById('note-concept').value.trim();
-
-    if (!content) { toast('笔记内容不能为空', 'error'); return; }
-    if (!isInitialized) { toast('请先初始化助手', 'error'); return; }
-
-    showLoading('保存笔记...');
-    try {
-        const res = await api('/api/note', {
-            method: 'POST',
-            body: JSON.stringify({ content, concept: concept || null }),
-        });
-        setResult('note-result', `✅ ${res.message}`, 'success');
-        toast('笔记已保存', 'success');
-        document.getElementById('note-content').value = '';
-        document.getElementById('note-concept').value = '';
-    } catch (e) {
-        setResult('note-result', `❌ ${e.message}`, 'error');
-        toast(e.message, 'error');
-    } finally {
-        hideLoading();
-    }
-});
-
-// ── 学习回顾 ─────────────────────────────
-
-document.getElementById('recall-btn').addEventListener('click', async () => {
-    const query = document.getElementById('recall-query').value.trim();
-    if (!query) { toast('请输入查询关键词', 'error'); return; }
-    if (!isInitialized) { toast('请先初始化助手', 'error'); return; }
-
-    showLoading('检索记忆...');
-    try {
-        const res = await api('/api/recall', {
-            method: 'POST',
-            body: JSON.stringify({ query }),
-        });
-        const el = document.getElementById('recall-result');
-        el.textContent = res.message;
-        el.classList.add('show');
-    } catch (e) {
-        toast(e.message, 'error');
-    } finally {
-        hideLoading();
-    }
-});
-
-// ── 统计 & 报告 ──────────────────────────
+// ── 统计 ──────────────────────────────────
 
 document.getElementById('refresh-stats-btn').addEventListener('click', async () => {
     if (!isInitialized) { toast('请先初始化助手', 'error'); return; }
@@ -327,26 +361,79 @@ document.getElementById('refresh-stats-btn').addEventListener('click', async () 
         document.getElementById('stat-val-duration').textContent  = d['会话时长'] || '--';
         document.getElementById('stat-val-docs').textContent      = d['加载文档'] ?? 0;
         document.getElementById('stat-val-questions').textContent  = d['提问次数'] ?? 0;
-        document.getElementById('stat-val-notes').textContent     = d['学习笔记'] ?? 0;
+        document.getElementById('stat-val-vectors').textContent   = d['知识库向量数'] ?? 0;
         toast('统计已刷新', 'info');
     } catch (e) {
         toast(e.message, 'error');
     }
 });
 
-document.getElementById('gen-report-btn').addEventListener('click', async () => {
-    if (!isInitialized) { toast('请先初始化助手', 'error'); return; }
+// ── 文档管理 ─────────────────────────────
 
-    showLoading('生成报告...');
+const docListEl = document.getElementById('doc-list');
+
+async function loadDocuments() {
+    if (!isInitialized) return;
     try {
-        const res = await api('/api/report');
-        const card = document.getElementById('report-card');
-        card.style.display = 'block';
-        document.getElementById('report-content').textContent = JSON.stringify(res.data, null, 2);
-        toast('报告已生成', 'success');
-    } catch (e) {
+        const res = await api('/api/documents');
+        const docs = res.data?.documents || [];
+
+        if (docs.length === 0) {
+            docListEl.innerHTML = '<div class="doc-list-empty">📭 知识库中暂无文档，请上传文件</div>';
+            return;
+        }
+
+        docListEl.innerHTML = docs.map((doc, idx) => {
+            const addedDate = doc.added_at ? new Date(doc.added_at * 1000).toLocaleDateString('zh-CN') : '未知';
+            return `
+                <div class="doc-item" data-idx="${idx}">
+                    <span class="doc-item-icon">📄</span>
+                    <div class="doc-item-info">
+                        <div class="doc-item-name">${escapeHtml(doc.source)}</div>
+                        <div class="doc-item-meta">${doc.chunks} 个分块 · 添加于 ${addedDate}</div>
+                    </div>
+                    <button class="doc-item-delete" data-idx="${idx}">删除</button>
+                </div>
+            `;
+        }).join('');
+
+        docListEl._docs = docs;
+    } catch(e) {
+        docListEl.innerHTML = `<div class="doc-list-empty">⚠️ 加载失败: ${e.message}</div>`;
+    }
+}
+
+async function deleteDocument(source) {
+    showLoading('删除文档...');
+    try {
+        const res = await api('/api/documents/delete', {
+            method: 'POST',
+            body: JSON.stringify({ source }),
+        });
+        if (res.success) {
+            toast(res.message, 'success');
+            loadDocuments();
+        } else {
+            toast(res.message, 'error');
+        }
+    } catch(e) {
         toast(e.message, 'error');
     } finally {
         hideLoading();
     }
+}
+
+// 事件委托：点击删除按钮
+docListEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.doc-item-delete');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx, 10);
+    const docs = docListEl._docs;
+    if (!docs || idx < 0 || idx >= docs.length) return;
+    deleteDocument(docs[idx].source);
+});
+
+document.getElementById('refresh-docs-btn').addEventListener('click', () => {
+    if (!isInitialized) { toast('请先初始化助手', 'error'); return; }
+    loadDocuments();
 });

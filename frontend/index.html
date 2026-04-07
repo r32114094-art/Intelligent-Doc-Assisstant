@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
     <!-- ─────────── 侧边栏 ─────────── -->
@@ -29,17 +29,13 @@
                 <span class="nav-icon">💬</span>
                 <span class="nav-label">智能问答</span>
             </button>
-            <button class="nav-item" data-page="notes" id="nav-notes">
-                <span class="nav-icon">📝</span>
-                <span class="nav-label">学习笔记</span>
-            </button>
-            <button class="nav-item" data-page="recall" id="nav-recall">
-                <span class="nav-icon">🧠</span>
-                <span class="nav-label">学习回顾</span>
+            <button class="nav-item" data-page="docs" id="nav-docs">
+                <span class="nav-icon">📂</span>
+                <span class="nav-label">知识库管理</span>
             </button>
             <button class="nav-item" data-page="stats" id="nav-stats">
                 <span class="nav-icon">📊</span>
-                <span class="nav-label">统计报告</span>
+                <span class="nav-label">系统统计</span>
             </button>
         </nav>
 
@@ -83,7 +79,7 @@
                 <div class="card glass-card">
                     <div class="card-header">
                         <span class="card-icon">📄</span>
-                        <h2>加载PDF文档</h2>
+                        <h2>上传新文档</h2>
                     </div>
                     <div class="card-body">
                         <div class="upload-zone" id="upload-zone">
@@ -142,79 +138,56 @@
             </div>
         </section>
 
-        <!-- ===== 学习笔记 ===== -->
-        <section class="page" id="page-notes">
+        <!-- ===== 知识库管理 ===== -->
+        <section class="page" id="page-docs">
             <div class="page-header">
-                <h1>📝 学习笔记</h1>
-                <p class="page-desc">记录学习心得和重要概念</p>
+                <h1>📂 知识库管理</h1>
+                <p class="page-desc">管理已索引的文档</p>
             </div>
 
             <div class="card glass-card">
+                <div class="card-header">
+                    <span class="card-icon">📋</span>
+                    <h2>已索引文档</h2>
+                </div>
                 <div class="card-body">
-                    <div class="input-group">
-                        <label for="note-content">笔记内容</label>
-                        <textarea id="note-content" placeholder="输入你的学习笔记..." rows="4"></textarea>
-                    </div>
-                    <div class="input-group">
-                        <label for="note-concept">相关概念（可选）</label>
-                        <input type="text" id="note-concept" placeholder="例如：transformer, attention">
-                    </div>
-                    <button class="btn btn-primary btn-glow" id="save-note-btn">
-                        <span class="btn-icon">💾</span> 保存笔记
+                    <button class="btn btn-secondary" id="refresh-docs-btn">
+                        <span class="btn-icon">🔄</span> 刷新列表
                     </button>
-                    <div class="result-box" id="note-result"></div>
+                    <div class="doc-list" id="doc-list" style="margin-top:16px;">
+                        <p class="empty-hint">点击「刷新列表」查看已索引文档</p>
+                    </div>
                 </div>
             </div>
         </section>
 
-        <!-- ===== 学习回顾 ===== -->
-        <section class="page" id="page-recall">
-            <div class="page-header">
-                <h1>🧠 学习回顾</h1>
-                <p class="page-desc">检索并回顾你的学习历程</p>
-            </div>
-
-            <div class="card glass-card">
-                <div class="card-body">
-                    <div class="input-group">
-                        <label for="recall-query">查询关键词</label>
-                        <input type="text" id="recall-query" placeholder="输入关键词检索学习记忆...">
-                    </div>
-                    <button class="btn btn-primary btn-glow" id="recall-btn">
-                        <span class="btn-icon">🔍</span> 检索回顾
-                    </button>
-                    <div class="recall-result" id="recall-result"></div>
-                </div>
-            </div>
-        </section>
-
-        <!-- ===== 统计报告 ===== -->
+        <!-- ===== 系统统计 ===== -->
         <section class="page" id="page-stats">
             <div class="page-header">
-                <h1>📊 学习统计</h1>
-                <p class="page-desc">查看学习进度和统计信息</p>
+                <h1>📊 系统统计</h1>
+                <p class="page-desc">查看系统状态和使用统计</p>
             </div>
 
             <div class="cards-grid">
-                <div class="card glass-card stat-card" id="stat-duration">
+                <div class="card glass-card stat-card">
                     <span class="stat-icon">⏱️</span>
                     <span class="stat-value" id="stat-val-duration">--</span>
                     <span class="stat-label">会话时长</span>
                 </div>
-                <div class="card glass-card stat-card" id="stat-docs">
+                <div class="card glass-card stat-card">
                     <span class="stat-icon">📄</span>
                     <span class="stat-value" id="stat-val-docs">0</span>
                     <span class="stat-label">加载文档</span>
                 </div>
-                <div class="card glass-card stat-card" id="stat-questions">
+                <div class="card glass-card stat-card">
                     <span class="stat-icon">❓</span>
                     <span class="stat-value" id="stat-val-questions">0</span>
                     <span class="stat-label">提问次数</span>
                 </div>
-                <div class="card glass-card stat-card" id="stat-notes">
-                    <span class="stat-icon">📝</span>
-                    <span class="stat-value" id="stat-val-notes">0</span>
-                    <span class="stat-label">学习笔记</span>
+                <div class="card glass-card stat-card">
+                    <span class="stat-icon">🗃️</span>
+                    <span class="stat-value" id="stat-val-vectors">0</span>
+                    <span class="stat-label">向量总数</span>
                 </div>
             </div>
 
@@ -222,19 +195,6 @@
                 <button class="btn btn-primary btn-glow" id="refresh-stats-btn">
                     <span class="btn-icon">🔄</span> 刷新统计
                 </button>
-                <button class="btn btn-secondary" id="gen-report-btn">
-                    <span class="btn-icon">📋</span> 生成报告
-                </button>
-            </div>
-
-            <div class="card glass-card" id="report-card" style="display:none;">
-                <div class="card-header">
-                    <span class="card-icon">📋</span>
-                    <h2>学习报告</h2>
-                </div>
-                <div class="card-body">
-                    <pre id="report-content" class="report-pre"></pre>
-                </div>
             </div>
         </section>
     </main>
@@ -248,6 +208,6 @@
     <!-- Toast 通知 -->
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=7"></script>
 </body>
 </html>
