@@ -240,9 +240,8 @@ class TextChunker:
                 i += 1
             else:
                 # 输出当前块
-                body = "\n\n".join(x["content"] for x in cur)
+                content = "\n\n".join(x["content"] for x in cur)
                 heading = next((x["heading_path"] for x in reversed(cur) if x.get("heading_path")), None)
-                content = f"[{heading}]\n{body}" if heading else body
                 chunks.append({
                     "content": content,
                     "start": cur[0]["start"],
@@ -273,9 +272,8 @@ class TextChunker:
 
         # 输出最后一个块
         if cur:
-            body = "\n\n".join(x["content"] for x in cur)
+            content = "\n\n".join(x["content"] for x in cur)
             heading = next((x["heading_path"] for x in reversed(cur) if x.get("heading_path")), None)
-            content = f"[{heading}]\n{body}" if heading else body
             chunks.append({
                 "content": content,
                 "start": cur[0]["start"],

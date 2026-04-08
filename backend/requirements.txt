@@ -19,3 +19,7 @@ openai
 # 工具库
 requests
 numpy
+
+# V3: 混合检索 (BM25 + Dense)
+rank-bm25
+jieba

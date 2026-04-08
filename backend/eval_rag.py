@@ -185,14 +185,14 @@ class LLMJudge:
             }
 
     def score_context_relevance(self, question: str, contexts: List[str]) -> Dict:
-        ctx = "\n---\n".join(c[:300] for c in contexts[:5])
+        ctx = "\n---\n".join(contexts[:5])
         system = """你是公正的评估专家。评估检索到的文档上下文与问题的相关性。
 评分（1-5）：5=完全覆盖 4=基本覆盖 3=部分相关 2=大部分无关 1=完全无关
 JSON回复：{"score": <1-5>, "reason": "<原因>"}"""
         return self._parse_score(self._call(system, f"问题：{question}\n\n上下文：\n{ctx}"), "context_relevance")
 
     def score_faithfulness(self, question: str, answer: str, contexts: List[str]) -> Dict:
-        ctx = "\n---\n".join(c[:300] for c in contexts[:5])
+        ctx = "\n---\n".join(contexts[:5])
         system = """你是公正的评估专家。评估回答是否忠实于上下文（无编造/幻觉）。
 评分（1-5）：5=完全忠实 4=基本忠实 3=部分有依据 2=较多无依据 1=大部分编造
 JSON回复：{"score": <1-5>, "reason": "<原因>"}"""
@@ -203,7 +203,7 @@ JSON回复：{"score": <1-5>, "reason": "<原因>"}"""
 评分（1-5）：5=精准完整 4=基本正确 3=部分正确 2=偏题较多 1=完全错误
 JSON回复：{"score": <1-5>, "reason": "<原因>"}"""
         return self._parse_score(
-            self._call(system, f"问题：{question}\n\n标准答案：{ground_truth[:300]}\n\n系统回答：{answer}"),
+            self._call(system, f"问题：{question}\n\n标准答案：{ground_truth}\n\n系统回答：{answer}"),
             "answer_relevance",
         )
 
@@ -258,34 +258,8 @@ def run_single_query(assistant, question: str, config: PipelineConfig) -> Tuple[
         result = assistant.ask(question)
         answer = result.get("answer", "")
 
-        # 通过检索来获取 context
-        all_queries = [question]
-        if config.enable_mqe:
-            expanded = assistant.llm.expand_query(question, n=assistant.config.mqe_expansions)
-            all_queries.extend(expanded)
-        if config.enable_hyde:
-            hyde = assistant.llm.generate_hypothetical_doc(question)
-            if hyde:
-                all_queries.append(hyde)
-
-        aggregated = {}
-        per_query = max(1, 20 // len(all_queries))
-        for q in all_queries:
-            qv = assistant.embedder.embed_query(q)
-            hits = assistant.store.search(query_vector=qv, limit=per_query, filters={"is_rag_data": True})
-            for hit in hits:
-                hid = hit["id"]
-                if hid not in aggregated or hit["score"] > aggregated[hid]["score"]:
-                    aggregated[hid] = hit
-
-        candidates = sorted(aggregated.values(), key=lambda x: x["score"], reverse=True)
-
-        if config.enable_rerank and candidates:
-            top = assistant.reranker.rerank(question, candidates, top_k=assistant.config.rerank_top_k)
-        else:
-            top = candidates[:assistant.config.top_k]
-
-        contexts = [r["content"] for r in top if r.get("content")]
+        # 直接从 ask() 返回值中获取 context（确保与 answer 来自同一次检索）
+        contexts = result.get("contexts", [])
         latency = time.time() - t0
 
     except Exception as e:

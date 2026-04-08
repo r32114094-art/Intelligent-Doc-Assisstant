@@ -22,8 +22,10 @@ from rag.chunker import TextChunker
 from rag.embedder import TextEmbedder, preprocess_for_embedding
 from rag.vector_store import VectorStore
 from rag.llm_client import LLMClient
+from qdrant_client.http.models import Filter, FieldCondition, MatchValue
 from rag.retriever import Retriever
 from rag.reranker import Reranker
+from rag.bm25_index import BM25Index
 
 
 class DocumentAssistant:
@@ -41,6 +43,7 @@ class DocumentAssistant:
         self.llm: Optional[LLMClient] = None
         self.retriever: Optional[Retriever] = None
         self.reranker: Optional[Reranker] = None
+        self.bm25_index: Optional[BM25Index] = None
 
         # 会话统计
         self.stats = {
@@ -69,15 +72,60 @@ class DocumentAssistant:
         # 5. LLM 客户端
         self.llm = LLMClient(self.config.llm)
 
-        # 6. 检索器
-        self.retriever = Retriever(self.store, self.embedder, self.llm)
+        # 6. BM25 索引 (V3: Hybrid Search)
+        self.bm25_index = BM25Index()
+        self._rebuild_bm25_from_store()
 
-        # 7. 重排序器
+        # 7. 检索器 (注入 BM25 索引)
+        self.retriever = Retriever(self.store, self.embedder, self.llm, self.bm25_index)
+
+        # 8. 重排序器
         self.reranker = Reranker(self.config.rerank_model)
 
         self.initialized = True
         elapsed = time.time() - start
         print(f"✅ RAG 管道初始化完成 (耗时: {elapsed:.1f}s)")
+    # ── BM25 索引重建 ─────────────────────────
+
+    def _rebuild_bm25_from_store(self):
+        """从 Qdrant 现有数据重建 BM25 索引（启动时调用）"""
+        try:
+            rag_filter = Filter(must=[
+                FieldCondition(key="is_rag_data", match=MatchValue(value=True))
+            ])
+            offset = None
+            doc_ids = []
+            contents = []
+            metadata_list = []
+
+            while True:
+                results, next_offset = self.store.client.scroll(
+                    collection_name=self.store.collection_name,
+                    scroll_filter=rag_filter,
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for point in results:
+                    payload = point.payload or {}
+                    content = payload.get("content", "")
+                    if content:
+                        doc_ids.append(str(point.id))
+                        contents.append(content)
+                        metadata_list.append(payload)
+
+                if next_offset is None:
+                    break
+                offset = next_offset
+
+            if doc_ids:
+                self.bm25_index.add_documents(doc_ids, contents, metadata_list)
+                print(f"✅ BM25 索引重建完成: {len(doc_ids)} 条文档")
+            else:
+                print("ℹ️  BM25 索引: 暂无文档数据")
+        except Exception as e:
+            print(f"⚠️  BM25 索引重建失败 (降级为纯向量检索): {e}")
 
     # ── 文档加载 ──────────────────────────────
 
@@ -132,6 +180,10 @@ class DocumentAssistant:
 
             self.store.upsert(ids, vectors, payloads)
 
+            # V3: 同步更新 BM25 索引
+            contents = [c["content"] for c in chunks]
+            self.bm25_index.add_documents(ids, contents, payloads)
+
             elapsed = time.time() - start_time
             self.stats["documents_loaded"] += 1
 
@@ -151,65 +203,35 @@ class DocumentAssistant:
         """
         向知识库提问
 
-        流程：检索（MQE + HyDE）→ 重排序 → LLM 生成回答
+        流程：混合检索（含 MQE + HyDE）→ 重排序 → LLM 生成回答
         返回结构化结果，包含管道各步骤信息
         """
         steps = []
         start_total = time.time()
 
         try:
-            # Step 1: MQE 查询扩展
-            if self.config.enable_mqe:
-                t0 = time.time()
-                expanded = self.llm.expand_query(question, n=self.config.mqe_expansions)
-                steps.append({
-                    "name": "MQE 多查询扩展",
-                    "icon": "📝",
-                    "detail": f"生成 {len(expanded)} 个扩展查询",
-                    "time": f"{time.time()-t0:.1f}s",
-                    "queries": expanded,
-                })
-            else:
-                expanded = []
-
-            # Step 2: HyDE 假设文档生成
-            if self.config.enable_hyde:
-                t0 = time.time()
-                hyde_doc = self.llm.generate_hypothetical_doc(question)
-                steps.append({
-                    "name": "HyDE 假设文档",
-                    "icon": "📄",
-                    "detail": f"生成假设答案段落 ({len(hyde_doc or '')} 字)",
-                    "time": f"{time.time()-t0:.1f}s",
-                })
-            else:
-                hyde_doc = None
-
-            # Step 3: 向量检索
+            # Step 1: 混合检索 (Dense + BM25 + RRF)，内部自动处理 MQE/HyDE
             t0 = time.time()
-            all_queries = [question] + expanded
-            if hyde_doc:
-                all_queries.append(hyde_doc)
+            candidates = self.retriever.retrieve(
+                query=question,
+                top_k=self.config.rerank_candidates,
+                enable_mqe=self.config.enable_mqe,
+                mqe_expansions=self.config.mqe_expansions,
+                enable_hyde=self.config.enable_hyde,
+            )
+            retrieval_time = time.time() - t0
 
-            aggregated = {}
-            pool_size = max(self.config.rerank_candidates * 4, 20)
-            per_query = max(1, pool_size // len(all_queries))
-            filters = {"is_rag_data": True}
-
-            for q in all_queries:
-                qv = self.embedder.embed_query(q)
-                hits = self.store.search(query_vector=qv, limit=per_query, filters=filters)
-                for hit in hits:
-                    hid = hit["id"]
-                    if hid not in aggregated or hit["score"] > aggregated[hid]["score"]:
-                        aggregated[hid] = hit
-
-            candidates = sorted(aggregated.values(), key=lambda x: x["score"], reverse=True)
+            # 记录管道步骤信息
+            step_detail = "Dense + BM25 + RRF 融合"
+            if self.config.enable_mqe:
+                step_detail += " + MQE"
+            if self.config.enable_hyde:
+                step_detail += " + HyDE"
             steps.append({
-                "name": "向量检索",
+                "name": "混合检索",
                 "icon": "🔍",
-                "detail": f"使用 {len(all_queries)} 个查询，召回 {len(candidates)} 条候选",
-                "time": f"{time.time()-t0:.1f}s",
+                "detail": f"{step_detail}，召回 {len(candidates)} 条候选",
+                "time": f"{retrieval_time:.1f}s",
             })
 
             if not candidates:
@@ -218,7 +240,7 @@ class DocumentAssistant:
                     "steps": steps,
                 }
 
-            # Step 4: Cross-Encoder 重排序
+            # Step 2: Cross-Encoder 重排序
             if self.config.enable_rerank:
                 t0 = time.time()
                 top_results = self.reranker.rerank(question, candidates, top_k=self.config.rerank_top_k)
@@ -231,7 +253,7 @@ class DocumentAssistant:
             else:
                 top_results = candidates[: self.config.top_k]
 
-            # Step 5: LLM 生成回答
+            # Step 3: LLM 生成回答
             context_chunks = [r["content"] for r in top_results if r.get("content")]
             if not context_chunks:
                 return {
@@ -254,6 +276,7 @@ class DocumentAssistant:
             return {
                 "answer": answer,
                 "steps": steps,
+                "contexts": context_chunks,  # 供评估脚本使用，避免二次检索
                 "total_time": f"{total_time:.1f}s",
             }
 
@@ -278,52 +301,29 @@ class DocumentAssistant:
         start_total = time.time()
 
         try:
-            # Step 1: MQE 查询扩展
+            # Step 1: 混合检索 (Dense + BM25 + RRF)，内部自动处理 MQE/HyDE
+            step_detail = "Dense + BM25 + RRF 融合"
             if self.config.enable_mqe:
-                yield json.dumps({"type": "step", "icon": "📝", "name": "MQE 多查询扩展", "detail": "正在生成扩展查询..."}, ensure_ascii=False)
-                t0 = time.time()
-                expanded = self.llm.expand_query(question, n=self.config.mqe_expansions)
-                yield json.dumps({"type": "step", "icon": "📝", "name": "MQE 多查询扩展", "detail": f"生成 {len(expanded)} 个扩展查询", "time": f"{time.time()-t0:.1f}s"}, ensure_ascii=False)
-            else:
-                expanded = []
-
-            # Step 2: HyDE 假设文档
+                step_detail += " + MQE"
             if self.config.enable_hyde:
-                yield json.dumps({"type": "step", "icon": "📄", "name": "HyDE 假设文档", "detail": "正在生成假设答案..."}, ensure_ascii=False)
-                t0 = time.time()
-                hyde_doc = self.llm.generate_hypothetical_doc(question)
-                yield json.dumps({"type": "step", "icon": "📄", "name": "HyDE 假设文档", "detail": f"生成假设段落 ({len(hyde_doc or '')} 字)", "time": f"{time.time()-t0:.1f}s"}, ensure_ascii=False)
-            else:
-                hyde_doc = None
+                step_detail += " + HyDE"
+            yield json.dumps({"type": "step", "icon": "🔍", "name": "混合检索", "detail": f"{step_detail}，正在搜索..."}, ensure_ascii=False)
 
-            # Step 3: 向量检索
-            yield json.dumps({"type": "step", "icon": "🔍", "name": "向量检索", "detail": "正在搜索知识库..."}, ensure_ascii=False)
             t0 = time.time()
-            all_queries = [question] + expanded
-            if hyde_doc:
-                all_queries.append(hyde_doc)
-
-            aggregated = {}
-            pool_size = max(self.config.rerank_candidates * 4, 20)
-            per_query = max(1, pool_size // len(all_queries))
-            filters = {"is_rag_data": True}
-
-            for q in all_queries:
-                qv = self.embedder.embed_query(q)
-                hits = self.store.search(query_vector=qv, limit=per_query, filters=filters)
-                for hit in hits:
-                    hid = hit["id"]
-                    if hid not in aggregated or hit["score"] > aggregated[hid]["score"]:
-                        aggregated[hid] = hit
-
-            candidates = sorted(aggregated.values(), key=lambda x: x["score"], reverse=True)
-            yield json.dumps({"type": "step", "icon": "🔍", "name": "向量检索", "detail": f"使用 {len(all_queries)} 个查询，召回 {len(candidates)} 条", "time": f"{time.time()-t0:.1f}s"}, ensure_ascii=False)
+            candidates = self.retriever.retrieve(
+                query=question,
+                top_k=self.config.rerank_candidates,
+                enable_mqe=self.config.enable_mqe,
+                mqe_expansions=self.config.mqe_expansions,
+                enable_hyde=self.config.enable_hyde,
+            )
+            yield json.dumps({"type": "step", "icon": "🔍", "name": "混合检索", "detail": f"{step_detail}，召回 {len(candidates)} 条", "time": f"{time.time()-t0:.1f}s"}, ensure_ascii=False)
 
             if not candidates:
                 yield json.dumps({"type": "answer", "content": "❌ 知识库中未找到相关内容，请确保已上传相关文档。"}, ensure_ascii=False)
                 return
 
-            # Step 4: Rerank
+            # Step 2: Rerank
             if self.config.enable_rerank:
                 yield json.dumps({"type": "step", "icon": "🎯", "name": "Cross-Encoder 重排序", "detail": "正在精排候选结果..."}, ensure_ascii=False)
                 t0 = time.time()
@@ -332,7 +332,7 @@ class DocumentAssistant:
             else:
                 top_results = candidates[: self.config.top_k]
 
-            # Step 5: LLM 生成
+            # Step 3: LLM 生成
             context_chunks = [r["content"] for r in top_results if r.get("content")]
             if not context_chunks:
                 yield json.dumps({"type": "answer", "content": "❌ 检索到的内容为空。"}, ensure_ascii=False)
