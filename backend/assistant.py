@@ -218,17 +218,19 @@ class DocumentAssistant:
                 enable_mqe=self.config.enable_mqe,
                 mqe_expansions=self.config.mqe_expansions,
                 enable_hyde=self.config.enable_hyde,
+                enable_bm25=self.config.enable_bm25,
             )
             retrieval_time = time.time() - t0
 
             # 记录管道步骤信息
-            step_detail = "Dense + BM25 + RRF 融合"
+            step_detail = "Dense + BM25 + RRF 融合" if self.config.enable_bm25 else "纯 Dense 向量检索"
             if self.config.enable_mqe:
                 step_detail += " + MQE"
             if self.config.enable_hyde:
                 step_detail += " + HyDE"
+            step_name = "混合检索" if self.config.enable_bm25 else "向量检索"
             steps.append({
-                "name": "混合检索",
+                "name": step_name,
                 "icon": "🔍",
                 "detail": f"{step_detail}，召回 {len(candidates)} 条候选",
                 "time": f"{retrieval_time:.1f}s",
@@ -301,13 +303,14 @@ class DocumentAssistant:
         start_total = time.time()
 
         try:
-            # Step 1: 混合检索 (Dense + BM25 + RRF)，内部自动处理 MQE/HyDE
-            step_detail = "Dense + BM25 + RRF 融合"
+            # Step 1: 检索，内部自动处理 MQE/HyDE/BM25
+            step_detail = "Dense + BM25 + RRF 融合" if self.config.enable_bm25 else "纯 Dense 向量检索"
             if self.config.enable_mqe:
                 step_detail += " + MQE"
             if self.config.enable_hyde:
                 step_detail += " + HyDE"
-            yield json.dumps({"type": "step", "icon": "🔍", "name": "混合检索", "detail": f"{step_detail}，正在搜索..."}, ensure_ascii=False)
+            step_name = "混合检索" if self.config.enable_bm25 else "向量检索"
+            yield json.dumps({"type": "step", "icon": "🔍", "name": step_name, "detail": f"{step_detail}，正在搜索..."}, ensure_ascii=False)
 
             t0 = time.time()
             candidates = self.retriever.retrieve(
@@ -316,8 +319,9 @@ class DocumentAssistant:
                 enable_mqe=self.config.enable_mqe,
                 mqe_expansions=self.config.mqe_expansions,
                 enable_hyde=self.config.enable_hyde,
+                enable_bm25=self.config.enable_bm25,
             )
-            yield json.dumps({"type": "step", "icon": "🔍", "name": "混合检索", "detail": f"{step_detail}，召回 {len(candidates)} 条", "time": f"{time.time()-t0:.1f}s"}, ensure_ascii=False)
+            yield json.dumps({"type": "step", "icon": "🔍", "name": step_name, "detail": f"{step_detail}，召回 {len(candidates)} 条", "time": f"{time.time()-t0:.1f}s"}, ensure_ascii=False)
 
             if not candidates:
                 yield json.dumps({"type": "answer", "content": "❌ 知识库中未找到相关内容，请确保已上传相关文档。"}, ensure_ascii=False)

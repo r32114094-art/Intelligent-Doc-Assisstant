@@ -227,16 +227,15 @@ class PipelineConfig:
     enable_mqe: bool = False
     enable_hyde: bool = False
     enable_rerank: bool = False
+    enable_bm25: bool = True
 
 
-# 6组消融配置
+# V4 消融配置：隔离 BM25 贡献，禁用 Rerank
 ABLATION_CONFIGS = [
-    PipelineConfig("Baseline",           False, False, False),
-    PipelineConfig("+MQE",               True,  False, False),
-    PipelineConfig("+HyDE",              False, True,  False),
-    PipelineConfig("+Rerank",            False, False, True),
-    PipelineConfig("+MQE+HyDE",          True,  True,  False),
-    PipelineConfig("Full (MQE+HyDE+RR)", True,  True,  True),
+    PipelineConfig("Dense Only",                 False, False, False, False),   # 纯向量基线
+    PipelineConfig("Dense+MQE+HyDE",             True,  True,  False, False),   # 纯向量 + 高级检索
+    PipelineConfig("Hybrid (Dense+BM25)",        False, False, False, True),    # 混合检索基线
+    PipelineConfig("Hybrid+MQE+HyDE",            True,  True,  False, True),    # 混合检索 + 高级检索
 ]
 
 
@@ -248,10 +247,12 @@ def run_single_query(assistant, question: str, config: PipelineConfig) -> Tuple[
     orig_mqe = assistant.config.enable_mqe
     orig_hyde = assistant.config.enable_hyde
     orig_rerank = assistant.config.enable_rerank
+    orig_bm25 = assistant.config.enable_bm25
 
     assistant.config.enable_mqe = config.enable_mqe
     assistant.config.enable_hyde = config.enable_hyde
     assistant.config.enable_rerank = config.enable_rerank
+    assistant.config.enable_bm25 = config.enable_bm25
 
     t0 = time.time()
     try:
@@ -271,6 +272,7 @@ def run_single_query(assistant, question: str, config: PipelineConfig) -> Tuple[
         assistant.config.enable_mqe = orig_mqe
         assistant.config.enable_hyde = orig_hyde
         assistant.config.enable_rerank = orig_rerank
+        assistant.config.enable_bm25 = orig_bm25
 
     return answer, contexts, latency
 
@@ -307,7 +309,7 @@ def run_evaluation(
     for ci, config in enumerate(configs):
         print(f"\n{'='*60}")
         print(f"  实验组 {ci+1}/{len(configs)}: {config.name}")
-        print(f"  MQE={config.enable_mqe} | HyDE={config.enable_hyde} | Rerank={config.enable_rerank}")
+        print(f"  MQE={config.enable_mqe} | HyDE={config.enable_hyde} | BM25={config.enable_bm25} | Rerank={config.enable_rerank}")
         print(f"{'='*60}")
 
         config_results = []
@@ -450,9 +452,9 @@ def print_report(report: Dict):
 
     # 按难度分组
     print(f"\n  {'─'*73}")
-    print(f"  📈 各难度分组得分 (仅 Full Pipeline)")
-    full = next((r for r in report["summary_table"] if "Full" in r["config"]), report["summary_table"][-1])
-    for diff, stats in full.get("by_difficulty", {}).items():
+    print(f"  📈 各难度分组得分 (最后一组: {report['summary_table'][-1]['config']})")
+    last_config = report["summary_table"][-1]
+    for diff, stats in last_config.get("by_difficulty", {}).items():
         label = {"easy": "简单", "medium": "中等", "hard": "困难"}.get(diff, diff)
         print(f"    {label} ({stats['count']}题):  CR={stats['avg_cr']}  FF={stats['avg_ff']}  AR={stats['avg_ar']}")
 

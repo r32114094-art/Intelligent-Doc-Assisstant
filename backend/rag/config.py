@@ -61,6 +61,7 @@ class RAGConfig:
     enable_mqe: bool = True
     mqe_expansions: int = 2
     enable_hyde: bool = True
+    enable_bm25: bool = True  # V4: 控制是否启用 BM25 混合检索
 
     # 重排序
     enable_rerank: bool = True

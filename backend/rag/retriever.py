@@ -16,7 +16,7 @@ V3 新增：
 import time
 from typing import List, Dict, Optional
 
-from .embedder import TextEmbedder, preprocess_for_embedding
+from .embedder import TextEmbedder
 from .vector_store import VectorStore
 from .llm_client import LLMClient
 from .bm25_index import BM25Index
@@ -39,6 +39,7 @@ class Retriever:
         enable_mqe: bool = True,
         mqe_expansions: int = 2,
         enable_hyde: bool = True,
+        enable_bm25: bool = True,
         candidate_pool_multiplier: int = 4,
         namespace: Optional[str] = None,
     ) -> List[Dict]:
@@ -51,6 +52,7 @@ class Retriever:
             enable_mqe: 是否启用 Multi-Query Expansion
             mqe_expansions: MQE 扩展查询数量
             enable_hyde: 是否启用 Hypothetical Document Embedding
+            enable_bm25: 是否启用 BM25 混合检索（False 则纯 Dense）
             candidate_pool_multiplier: 候选池大小倍数
             namespace: 命名空间过滤
 
@@ -62,11 +64,12 @@ class Retriever:
         # 构建过滤条件
         filters = {"is_rag_data": True}
 
-        # 如果既不启用 MQE 也不启用 HyDE，走混合检索
+        # 如果既不启用 MQE 也不启用 HyDE，走基础检索
         if not enable_mqe and not enable_hyde:
-            results = self._hybrid_search(query, top_k, filters)
+            results = self._hybrid_search(query, top_k, filters, enable_bm25=enable_bm25)
+            mode = "混合检索" if enable_bm25 else "纯向量检索"
             elapsed = time.time() - start_time
-            print(f"🔍 混合检索完成: {len(results)} 条结果 (耗时: {elapsed:.1f}s)")
+            print(f"🔍 {mode}完成: {len(results)} 条结果 (耗时: {elapsed:.1f}s)")
             return results
 
         # 高级检索：多查询合并
@@ -93,10 +96,10 @@ class Retriever:
         pool_size = max(top_k * candidate_pool_multiplier, 20)
         per_query = max(1, pool_size // len(unique_queries))
 
-        # 多查询并行检索 → 合并去重（每个子查询都用混合检索）
+        # 多查询并行检索 → 合并去重
         aggregated: Dict[str, Dict] = {}
         for q in unique_queries:
-            hits = self._hybrid_search(q, per_query, filters)
+            hits = self._hybrid_search(q, per_query, filters, enable_bm25=enable_bm25)
             for hit in hits:
                 hit_id = hit["id"]
                 if hit_id not in aggregated or hit["score"] > aggregated[hit_id]["score"]:
@@ -105,30 +108,31 @@ class Retriever:
         # 按分数降序排列
         results = sorted(aggregated.values(), key=lambda x: x["score"], reverse=True)[:top_k * candidate_pool_multiplier]
 
+        mode = "混合" if enable_bm25 else "纯向量"
         elapsed = time.time() - start_time
-        print(f"🔍 高级混合检索完成: {len(unique_queries)} 个查询, 召回 {len(results)} 条 (耗时: {elapsed:.1f}s)")
+        print(f"🔍 高级{mode}检索完成: {len(unique_queries)} 个查询, 召回 {len(results)} 条 (耗时: {elapsed:.1f}s)")
 
         return results
 
     # ── V3: 混合检索 (Dense + BM25 + RRF) ────────
 
-    def _hybrid_search(self, query: str, limit: int, filters: Dict) -> List[Dict]:
+    def _hybrid_search(self, query: str, limit: int, filters: Dict, enable_bm25: bool = True) -> List[Dict]:
         """
         混合检索：Dense 向量 + BM25 关键词 → RRF 融合排序
 
-        如果 BM25 索引不可用，降级为纯向量检索
+        enable_bm25=False 时退化为纯向量检索
         """
         # Dense 向量检索
         dense_results = self._dense_search(query, limit * 4, filters)
 
-        # BM25 稀疏检索（如果可用）
-        if self.bm25 and self.bm25.size > 0:
+        # BM25 稀疏检索（如果启用且索引可用）
+        if enable_bm25 and self.bm25 and self.bm25.size > 0:
             sparse_results = self.bm25.search(query, top_k=limit * 4)
             # RRF 融合
             fused = self._rrf_fusion(dense_results, sparse_results, k=60)
             return fused[:limit]
         else:
-            # 降级为纯向量检索
+            # 纯向量检索
             return dense_results[:limit]
 
     def _dense_search(self, query: str, limit: int, filters: Dict) -> List[Dict]:
@@ -168,7 +172,3 @@ class Retriever:
 
         return results
 
-    # 兼容旧接口
-    def _basic_search(self, query: str, limit: int, filters: Dict) -> List[Dict]:
-        """兼容旧接口，内部调用混合检索"""
-        return self._hybrid_search(query, limit, filters)
