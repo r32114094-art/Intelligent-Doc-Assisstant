@@ -1,0 +1,29 @@
+# ============================================================================
+# 智能文档问答助手 — Docker Compose 一键部署
+#
+# 启动：docker compose up -d
+# 查看日志：docker compose logs -f
+# 停止：docker compose down
+# ============================================================================
+
+name: doc-assistant
+
+services:
+  doc-assistant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: doc-assistant
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+    # 资源限制（Reranker CPU 推理可能瞬时占用较多内存）
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G

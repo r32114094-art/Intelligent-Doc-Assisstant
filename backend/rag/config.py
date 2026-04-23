@@ -51,20 +51,22 @@ class RAGConfig:
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     qdrant: QdrantConfig = field(default_factory=QdrantConfig)
 
-    # 分块参数
-    chunk_size: int = 800
-    chunk_overlap: int = 100
-    chunk_strategy: str = "heading_aware"  # "fixed" | "heading_aware"
+    # 分块参数 — V5 最佳: Small-to-Big (小检索，大上下文)
+    chunk_size: int = 400                         # V5: 小 chunk 检索更精准
+    chunk_overlap: int = 50                       # V5: 小 chunk 不需要大重叠
+    chunk_strategy: str = "heading_aware"         # 标题感知分块
+    enable_small_to_big: bool = True              # V5: 开启 Small-to-Big
+    parent_chunk_size: int = 1200                 # V5: 父 chunk 保证上下文完整
 
-    # 检索参数
+    # 检索参数 — V4 最佳: Dense + MQE + HyDE
     top_k: int = 5
-    enable_mqe: bool = True
+    enable_mqe: bool = True                       # V4: 多查询扩展
     mqe_expansions: int = 2
-    enable_hyde: bool = True
-    enable_bm25: bool = True  # V4: 控制是否启用 BM25 混合检索
+    enable_hyde: bool = True                      # V4: 假设文档嵌入
+    enable_bm25: bool = False                     # V4: 与 MQE+HyDE 冗余，禁用
 
-    # 重排序
-    enable_rerank: bool = True
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # 重排序 — V6: 中文 Rerank 消灭幻觉 (FF: 4.2→5.0)
+    enable_rerank: bool = True                    # V6: bge-reranker-base 显著提升忠实度
+    rerank_model: str = "BAAI/bge-reranker-base"  # 备用: 中文友好模型
     rerank_top_k: int = 5
     rerank_candidates: int = 20

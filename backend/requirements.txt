@@ -1,25 +1,28 @@
 # 核心框架
-fastapi
-uvicorn[standard]
-python-multipart
-python-dotenv
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.30.0,<1.0.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
 
 # 文档解析
-markitdown
+markitdown>=0.1.0
 
 # 向量数据库
-qdrant-client
+qdrant-client>=1.12.0,<2.0.0
 
 # 嵌入与重排序
-sentence-transformers
+sentence-transformers>=3.0.0,<4.0.0
 
 # LLM 调用
-openai
+openai>=1.30.0,<2.0.0
 
 # 工具库
-requests
-numpy
+requests>=2.31.0
+numpy>=1.24.0,<2.0.0
 
 # V3: 混合检索 (BM25 + Dense)
-rank-bm25
-jieba
+rank-bm25>=0.2.2
+jieba>=0.42.1
+
+# 测试
+pytest>=8.0.0

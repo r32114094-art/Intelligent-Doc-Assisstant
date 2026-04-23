@@ -49,6 +49,8 @@ class TextChunker:
         chunk_size: int = 800,
         overlap: int = 100,
         source_path: str = "",
+        enable_small_to_big: bool = False,
+        parent_chunk_size: int = 1200,
     ) -> List[Dict]:
         """
         统一分块入口
@@ -59,6 +61,8 @@ class TextChunker:
             chunk_size: 每个块的目标 token 数
             overlap: 重叠 token 数
             source_path: 源文件路径（写入元数据）
+            enable_small_to_big: V5 — 是否启用 Small-to-Big 分块
+            parent_chunk_size: V5 — 父 chunk 大小 (仅 small_to_big 生效)
 
         Returns:
             分块列表，每个块包含 id, content, metadata
@@ -66,7 +70,10 @@ class TextChunker:
         if not text.strip():
             return []
 
-        if strategy == "fixed":
+        if enable_small_to_big:
+            print(f"   [S2B] Small-to-Big mode: child={chunk_size}, parent={parent_chunk_size}")
+            raw_chunks = self._chunk_small_to_big(text, child_size=chunk_size, parent_size=parent_chunk_size, strategy=strategy)
+        elif strategy == "fixed":
             raw_chunks = self._chunk_fixed_size(text, chunk_size, overlap)
         else:
             print(f"   文本长度: {len(text)} 字符", flush=True)
@@ -92,21 +99,108 @@ class TextChunker:
                 f"{doc_id}|{ch['start']}|{ch['end']}|{content_hash}".encode()
             ).hexdigest()
 
+            metadata = {
+                "source_path": source_path,
+                "doc_id": doc_id,
+                "content_hash": content_hash,
+                "start": ch["start"],
+                "end": ch["end"],
+                "heading_path": ch.get("heading_path"),
+                "chunk_strategy": strategy if not enable_small_to_big else "small_to_big",
+            }
+
+            # V5: Small-to-Big 元数据
+            if ch.get("parent_id"):
+                metadata["parent_id"] = ch["parent_id"]
+                metadata["parent_content"] = ch["parent_content"]
+
             results.append({
                 "id": chunk_id,
                 "content": content,
-                "metadata": {
-                    "source_path": source_path,
-                    "doc_id": doc_id,
-                    "content_hash": content_hash,
-                    "start": ch["start"],
-                    "end": ch["end"],
-                    "heading_path": ch.get("heading_path"),
-                    "chunk_strategy": strategy,
-                },
+                "metadata": metadata,
             })
 
         return results
+
+    # ── V5: Small-to-Big 分块 ─────────────────
+
+    def _chunk_small_to_big(self, text: str, child_size: int = 400,
+                            parent_size: int = 1200, strategy: str = "heading_aware") -> List[Dict]:
+        """
+        Small-to-Big 分块策略：
+
+        1. 先按 parent_size 做大分块（父 chunk）
+        2. 对每个父 chunk 做 child_size 的小分块（子 chunk）
+        3. 子 chunk 用于检索（入向量库），父 chunk 用于生成（存 payload）
+
+        子 chunk 的 metadata 中携带 parent_id 和 parent_content。
+        """
+        import time
+
+        # Step 1: 做大分块（parent）
+        t0 = time.time()
+        if strategy == "heading_aware":
+            paragraphs = self._split_by_headings(text)
+            parent_chunks = self._merge_paragraphs(paragraphs, parent_size, overlap=0)
+        else:
+            parent_chunks = self._chunk_fixed_size(text, parent_size, overlap=0)
+        print(f"   |-- Parent chunks: {len(parent_chunks)} (parent_size={parent_size}) ({time.time()-t0:.1f}s)", flush=True)
+
+        # Step 2: 每个 parent 分成小 child
+        t1 = time.time()
+        all_children = []
+        for pi, parent in enumerate(parent_chunks):
+            parent_id = f"parent_{pi}"
+            parent_content = parent["content"]
+
+            # 对父 chunk 内容做小分块
+            child_paragraphs = self._split_into_segments(parent_content, child_size)
+
+            for ci, child_text in enumerate(child_paragraphs):
+                if not child_text.strip():
+                    continue
+                all_children.append({
+                    "content": child_text,
+                    "start": parent["start"],
+                    "end": parent["end"],
+                    "heading_path": parent.get("heading_path"),
+                    "parent_id": parent_id,
+                    "parent_content": parent_content,
+                })
+
+        print(f"   +-- Child chunks: {len(all_children)} (child_size={child_size}) ({time.time()-t1:.1f}s)", flush=True)
+        return all_children
+
+    def _split_into_segments(self, text: str, target_size: int) -> List[str]:
+        """
+        将文本按 target_size tokens 切分成多个片段（句子边界友好）。
+        """
+        sentences = re.split(r'(?<=[。！？\n])', text)
+        segments = []
+        current = []
+        current_tokens = 0
+
+        for sent in sentences:
+            sent = sent.strip()
+            if not sent:
+                continue
+            sent_tokens = _approx_token_len(sent)
+            if current_tokens + sent_tokens > target_size and current:
+                segments.append("".join(current))
+                current = [sent]
+                current_tokens = sent_tokens
+            else:
+                current.append(sent)
+                current_tokens += sent_tokens
+
+        if current:
+            segments.append("".join(current))
+
+        # 如果整段文本不够一个 segment，直接返回
+        if not segments:
+            segments = [text]
+
+        return segments
 
     # ── 策略 1：固定大小滑动窗口 ─────────────────
 

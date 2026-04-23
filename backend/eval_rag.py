@@ -228,14 +228,17 @@ class PipelineConfig:
     enable_hyde: bool = False
     enable_rerank: bool = False
     enable_bm25: bool = True
+    # V5: 分块策略参数
+    chunk_size: int = 0            # 0 = 使用 RAGConfig 默认值
+    enable_small_to_big: bool = False
+    parent_chunk_size: int = 1200
 
 
-# V4 消融配置：隔离 BM25 贡献，禁用 Rerank
+# V6 消融配置：中文 Rerank (BAAI/bge-reranker-base) 效果验证
+# 基线 = V5 最佳配置 (S2B + MQE + HyDE)，仅切换 Rerank 开关
 ABLATION_CONFIGS = [
-    PipelineConfig("Dense Only",                 False, False, False, False),   # 纯向量基线
-    PipelineConfig("Dense+MQE+HyDE",             True,  True,  False, False),   # 纯向量 + 高级检索
-    PipelineConfig("Hybrid (Dense+BM25)",        False, False, False, True),    # 混合检索基线
-    PipelineConfig("Hybrid+MQE+HyDE",            True,  True,  False, True),    # 混合检索 + 高级检索
+    PipelineConfig("V5-Best (No Rerank)",          True, True, False, False, chunk_size=400, enable_small_to_big=True, parent_chunk_size=1200),
+    PipelineConfig("V5-Best + Chinese Rerank",     True, True, True,  False, chunk_size=400, enable_small_to_big=True, parent_chunk_size=1200),
 ]
 
 
@@ -248,11 +251,15 @@ def run_single_query(assistant, question: str, config: PipelineConfig) -> Tuple[
     orig_hyde = assistant.config.enable_hyde
     orig_rerank = assistant.config.enable_rerank
     orig_bm25 = assistant.config.enable_bm25
+    orig_s2b = assistant.config.enable_small_to_big
+    orig_pcs = assistant.config.parent_chunk_size
 
     assistant.config.enable_mqe = config.enable_mqe
     assistant.config.enable_hyde = config.enable_hyde
     assistant.config.enable_rerank = config.enable_rerank
     assistant.config.enable_bm25 = config.enable_bm25
+    assistant.config.enable_small_to_big = config.enable_small_to_big
+    assistant.config.parent_chunk_size = config.parent_chunk_size
 
     t0 = time.time()
     try:
@@ -273,6 +280,8 @@ def run_single_query(assistant, question: str, config: PipelineConfig) -> Tuple[
         assistant.config.enable_hyde = orig_hyde
         assistant.config.enable_rerank = orig_rerank
         assistant.config.enable_bm25 = orig_bm25
+        assistant.config.enable_small_to_big = orig_s2b
+        assistant.config.parent_chunk_size = orig_pcs
 
     return answer, contexts, latency
 
@@ -286,6 +295,7 @@ def run_evaluation(
     test_cases: List[TestCase],
     configs: List[PipelineConfig] = None,
     delay: float = 2.0,
+    doc_path: str = None,
 ) -> Dict:
     """
     执行完整消融实验
@@ -293,8 +303,9 @@ def run_evaluation(
     Args:
         assistant: DocumentAssistant 实例
         test_cases: 评测用例列表
-        configs: 管道配置列表（默认 6 组）
+        configs: 管道配置列表（默认 3 组）
         delay: 每次 API 调用间隔（秒）
+        doc_path: 知识库文档路径（V5: 切换分块策略时需要重新入库）
     """
     if configs is None:
         configs = ABLATION_CONFIGS
@@ -306,11 +317,52 @@ def run_evaluation(
     total_steps = len(configs) * len(test_cases)
     current_step = 0
 
+    # V5: 跟踪当前的分块配置，变化时触发重新入库
+    current_chunk_key = None
+
     for ci, config in enumerate(configs):
         print(f"\n{'='*60}")
         print(f"  实验组 {ci+1}/{len(configs)}: {config.name}")
         print(f"  MQE={config.enable_mqe} | HyDE={config.enable_hyde} | BM25={config.enable_bm25} | Rerank={config.enable_rerank}")
+        print(f"  chunk_size={config.chunk_size} | small_to_big={config.enable_small_to_big} | parent_size={config.parent_chunk_size}")
         print(f"{'='*60}")
+
+        # V5: 检查是否需要重新入库（分块策略变化时）
+        chunk_key = (config.chunk_size, config.enable_small_to_big, config.parent_chunk_size)
+        if chunk_key != current_chunk_key and doc_path:
+            current_chunk_key = chunk_key
+            print(f"\n  🔄 分块策略变化，重新入库...")
+            # 更新配置
+            if config.chunk_size > 0:
+                assistant.config.chunk_size = config.chunk_size
+            assistant.config.enable_small_to_big = config.enable_small_to_big
+            assistant.config.parent_chunk_size = config.parent_chunk_size
+            # 清空 Qdrant collection
+            try:
+                from qdrant_client.models import PointIdsList
+                # 获取所有点并删除
+                points = assistant.store.client.scroll(
+                    collection_name=assistant.store.collection_name,
+                    limit=10000,
+                )[0]
+                if points:
+                    point_ids = [p.id for p in points]
+                    assistant.store.client.delete(
+                        collection_name=assistant.store.collection_name,
+                        points_selector=PointIdsList(points=point_ids),
+                    )
+                # 清空 BM25 索引
+                assistant.bm25_index = type(assistant.bm25_index)()
+                print(f"  ✅ 已清空向量库和 BM25 索引")
+            except Exception as e:
+                print(f"  ⚠️ 清空向量库失败: {e}，尝试重新初始化...")
+
+            # 重新加载文档
+            result = assistant.load_document(doc_path)
+            print(f"  📄 重新入库结果: {result.get('message', result)}")
+        elif chunk_key != current_chunk_key and not doc_path:
+            current_chunk_key = chunk_key
+            print(f"\n  ⚠️ 分块策略变化但未提供 doc_path，跳过重新入库（使用现有索引）")
 
         config_results = []
 
@@ -477,7 +529,9 @@ if __name__ == "__main__":
                         help="评测数据集路径 (默认: docx/test.md)")
     parser.add_argument("--configs", "-c", type=str, default="all",
                         choices=["all", "baseline", "full", "quick"],
-                        help="实验组: all=6组, baseline=仅基线, full=仅全量, quick=基线+全量")
+                        help="实验组: all=全部, baseline=仅基线, full=仅Small-to-Big, quick=基线+S2B")
+    parser.add_argument("--doc-path", type=str, default=None,
+                        help="V5: 知识库文档路径（切换分块策略时自动重新入库）")
     parser.add_argument("--max-questions", "-n", type=int, default=0,
                         help="最多评测多少题 (0=全部)")
     parser.add_argument("--delay", "-d", type=float, default=2.0,
@@ -539,4 +593,4 @@ if __name__ == "__main__":
     print(f"   ✅ 初始化完成")
 
     # 4. 执行评估
-    report = run_evaluation(assistant, test_cases, configs, delay=args.delay)
+    report = run_evaluation(assistant, test_cases, configs, delay=args.delay, doc_path=args.doc_path)

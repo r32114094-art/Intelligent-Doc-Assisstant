@@ -72,15 +72,21 @@ class DocumentAssistant:
         # 5. LLM 客户端
         self.llm = LLMClient(self.config.llm)
 
-        # 6. BM25 索引 (V3: Hybrid Search)
-        self.bm25_index = BM25Index()
-        self._rebuild_bm25_from_store()
+        # 6. BM25 索引 — 懒加载: 仅 enable_bm25=True 时初始化
+        if self.config.enable_bm25:
+            self.bm25_index = BM25Index()
+            self._rebuild_bm25_from_store()
+        else:
+            self.bm25_index = None
 
-        # 7. 检索器 (注入 BM25 索引)
+        # 7. 检索器 (注入 BM25 索引，可能为 None)
         self.retriever = Retriever(self.store, self.embedder, self.llm, self.bm25_index)
 
-        # 8. 重排序器
-        self.reranker = Reranker(self.config.rerank_model)
+        # 8. 重排序器 — 懒加载: 仅 enable_rerank=True 时加载模型
+        if self.config.enable_rerank:
+            self.reranker = Reranker(self.config.rerank_model)
+        else:
+            self.reranker = None
 
         self.initialized = True
         elapsed = time.time() - start
@@ -149,13 +155,16 @@ class DocumentAssistant:
                 return {"success": False, "message": "文档内容为空"}
 
             # Step 2: 文本分块
-            print(f"✂️ 文本分块 (策略: {self.config.chunk_strategy})")
+            strat_label = "Small-to-Big" if self.config.enable_small_to_big else self.config.chunk_strategy
+            print(f"✂️ 文本分块 (策略: {strat_label})")
             chunks = self.chunker.chunk(
                 text,
                 strategy=self.config.chunk_strategy,
                 chunk_size=self.config.chunk_size,
                 overlap=self.config.chunk_overlap,
                 source_path=file_path,
+                enable_small_to_big=self.config.enable_small_to_big,
+                parent_chunk_size=self.config.parent_chunk_size,
             )
             print(f"   生成 {len(chunks)} 个分块")
 
@@ -180,9 +189,10 @@ class DocumentAssistant:
 
             self.store.upsert(ids, vectors, payloads)
 
-            # V3: 同步更新 BM25 索引
-            contents = [c["content"] for c in chunks]
-            self.bm25_index.add_documents(ids, contents, payloads)
+            # V3: 同步更新 BM25 索引（仅启用时）
+            if self.config.enable_bm25 and self.bm25_index:
+                contents = [c["content"] for c in chunks]
+                self.bm25_index.add_documents(ids, contents, payloads)
 
             elapsed = time.time() - start_time
             self.stats["documents_loaded"] += 1
@@ -212,9 +222,10 @@ class DocumentAssistant:
         try:
             # Step 1: 混合检索 (Dense + BM25 + RRF)，内部自动处理 MQE/HyDE
             t0 = time.time()
+            retrieval_pool = self.config.rerank_candidates if self.config.enable_rerank else self.config.top_k
             candidates = self.retriever.retrieve(
                 query=question,
-                top_k=self.config.rerank_candidates,
+                top_k=retrieval_pool,
                 enable_mqe=self.config.enable_mqe,
                 mqe_expansions=self.config.mqe_expansions,
                 enable_hyde=self.config.enable_hyde,
@@ -255,8 +266,8 @@ class DocumentAssistant:
             else:
                 top_results = candidates[: self.config.top_k]
 
-            # Step 3: LLM 生成回答
-            context_chunks = [r["content"] for r in top_results if r.get("content")]
+            # V5: Small-to-Big — 将子 chunk 扩展为父级上下文
+            context_chunks = self._expand_to_parent_contexts(top_results)
             if not context_chunks:
                 return {
                     "answer": "❌ 检索到的内容为空，请尝试换一种方式提问。",
@@ -313,9 +324,10 @@ class DocumentAssistant:
             yield json.dumps({"type": "step", "icon": "🔍", "name": step_name, "detail": f"{step_detail}，正在搜索..."}, ensure_ascii=False)
 
             t0 = time.time()
+            retrieval_pool = self.config.rerank_candidates if self.config.enable_rerank else self.config.top_k
             candidates = self.retriever.retrieve(
                 query=question,
-                top_k=self.config.rerank_candidates,
+                top_k=retrieval_pool,
                 enable_mqe=self.config.enable_mqe,
                 mqe_expansions=self.config.mqe_expansions,
                 enable_hyde=self.config.enable_hyde,
@@ -336,8 +348,8 @@ class DocumentAssistant:
             else:
                 top_results = candidates[: self.config.top_k]
 
-            # Step 3: LLM 生成
-            context_chunks = [r["content"] for r in top_results if r.get("content")]
+            # V5: Small-to-Big — 将子 chunk 扩展为父级上下文
+            context_chunks = self._expand_to_parent_contexts(top_results)
             if not context_chunks:
                 yield json.dumps({"type": "answer", "content": "❌ 检索到的内容为空。"}, ensure_ascii=False)
                 return
@@ -353,6 +365,43 @@ class DocumentAssistant:
 
         except Exception as e:
             yield json.dumps({"type": "answer", "content": f"❌ 问答失败: {str(e)}"}, ensure_ascii=False)
+    # ── V5: Small-to-Big 上下文扩展 ─────────────
+
+    def _expand_to_parent_contexts(self, results: list) -> list:
+        """
+        Small-to-Big 核心逻辑：将检索到的子 chunk 扩展为父级上下文。
+
+        - 如果结果中有 parent_content（Small-to-Big 模式），按 parent_id 去重后返回父级内容
+        - 如果没有（传统模式），直接返回原始 chunk content
+        """
+        # 检查是否是 Small-to-Big 模式
+        has_parent = any(r.get("parent_content") or r.get("metadata", {}).get("parent_content") for r in results)
+
+        if not has_parent:
+            # 传统模式：直接返回 chunk content
+            return [r["content"] for r in results if r.get("content")]
+
+        # Small-to-Big 模式：按 parent_id 去重，返回 parent_content
+        seen_parents = set()
+        parent_contexts = []
+
+        for r in results:
+            parent_id = r.get("parent_id") or r.get("metadata", {}).get("parent_id")
+            parent_content = r.get("parent_content") or r.get("metadata", {}).get("parent_content")
+
+            if parent_id and parent_content:
+                if parent_id not in seen_parents:
+                    seen_parents.add(parent_id)
+                    parent_contexts.append(parent_content)
+            elif r.get("content"):
+                # 兜底：没有 parent 信息时用原始 content
+                parent_contexts.append(r["content"])
+
+        if parent_contexts:
+            print(f"   [S2B] Small-to-Big: {len(results)} child chunks -> {len(parent_contexts)} parent contexts")
+
+        return parent_contexts
+
     # ── 统计信息 ──────────────────────────────
 
     def get_stats(self) -> Dict[str, Any]:

@@ -1,1 +1,29 @@
+# 敏感配置
 .env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# AI 工具配置
+CLAUDE.md
+
+# 大型二进制文件
+*.pdf
+
+# 实验与评估产物
+backend/eval_report_*.json
+experiments/
+
+# 数据库
+backend/memory_data/
+
+# 测试/调试临时文件
+backend/_test_*
+backend/learning_report_*.json
+
+# IDE
+.vscode/
+.idea/

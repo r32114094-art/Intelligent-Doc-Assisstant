@@ -1,0 +1,28 @@
+# 敏感配置
+.env
+
+# Git
+.git
+.gitignore
+
+# Python 缓存
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+
+# 开发/实验文件
+experiments/
+backend/eval_*.py
+backend/eval_*.json
+backend/_test_*.txt
+backend/memory_data/
+
+# 文档源文件（运行时通过 API 上传）
+docx/
+knowledge_base/
+*.pdf
+
+# IDE
+.vscode
+.idea
